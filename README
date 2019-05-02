@@ -1,0 +1,4 @@
+use `sbt` and then ren `~tut` to continuously compile.
+use `hugo server` to regenreate website.
+
+edit `src/main/tut/_index.md` for the presentation which triggers sbt build which outputs files which generates hugo website regen.
