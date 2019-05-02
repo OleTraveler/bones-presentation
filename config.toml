@@ -1,0 +1,9 @@
+baseURL = "oletraveler.github.com"
+languageCode = "en-us"
+title = "Bones Presentation"
+theme = "reveal-hugo"
+
+[outputFormats.Reveal]
+baseName = "index"
+mediaType = "text/html"
+isHTML = true
