@@ -1,6 +1,7 @@
 package slides
 
 import argonaut.Json.JsonAssoc
+import shapeless.{Generic, HNil, ::}
 
 object Slides extends App {
 
@@ -18,19 +19,21 @@ object Slides extends App {
 
   val example =
     TupleData(
-      TupleData(OptionalData(TupleData(StringData("name"), IntData("id"))),
-                OptionalData(IntData("experienceInYears"))),
-      IntData("numberOfKudos")
-    )
+      StringData("name"),
+      TupleData(
+        OptionalData(TupleData(IntData("latitude"), IntData("longitude"))),
+        OptionalData(IntData("height"))
+      ))
 
   object DocInterpreter {
 
     def createDoc[A](op: ValueOp[A]): String = {
       op match {
-        case StringData(key) => s"${key}:String"
-        case IntData(key)    => s"${key}:Int"
-        case OptionalData(b) => s"Optional( ${createDoc(b)} )"
-        case TupleData(b, c) => s"( ${createDoc(b)}, ${createDoc(c)})"
+        case TupleData(b, c) =>
+          s"${createDoc(b)} combined with ${createDoc(c)})"
+        case OptionalData(b) => s"${createDoc(b)} which is optional"
+        case StringData(key) => s"a String with key ${key}"
+        case IntData(key)    => s"an Int with key ${key}"
       }
     }
   }
@@ -76,34 +79,86 @@ object Slides extends App {
 
     }
 
-    val personFLiteral: ( ((Option[(String,Int)], Option[Int]), Int) ) => Json =
-      (i1: ( ((Option[(String,Int)], Option[Int]), Int) )) => {
+    val waterfallLiteral
+      : ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json =
+      (i1: (String, (Option[(Int, Int)], Option[Int]))) => {
         combine(
-          { (i2: (Option[(String,Int)], Option[Int]) ) => {
-            combine(
-              { (i3: Option[(String,Int)]) => {
-                i3 match {
-                  case None => Json.jEmptyObject
-                  case Some(a) => {
-                    {(i4: (String,Int) ) => {
-                      combine(
-                        { (s: String) => Json.obj( ("name", Json.jString(s)) )}.apply(i4._1),
-                        { (i: Int) => Json.obj( ("age", Json.jNumber(i)) )}.apply(i4._2)
-                      )
-                    }}.apply(a)
+          { (s: String) =>
+            Json.obj(("name", Json.jString(s)))
+          }.apply(i1._1), { (i2: (Option[(Int, Int)], Option[Int])) =>
+            {
+              combine(
+                {
+                  (i3: Option[(Int, Int)]) =>
+                    {
+                      i3 match {
+                        case None => Json.jEmptyObject
+                        case Some(a) => { (i4: (Int, Int)) =>
+                          {
+                            combine({ (i: Int) =>
+                              Json.obj(("lattitude", Json.jNumber(i)))
+                            }.apply(i4._1), { (i: Int) =>
+                              Json.obj(("longitude", Json.jNumber(i)))
+                            }.apply(i4._2))
+                          }
+                        }.apply(a)
+                      }
+                    }
+                }.apply(i2._1), { (i: Option[Int]) =>
+                  i match {
+                    case None => Json.jNull
+                    case Some(a) => { (i: Int) =>
+                      Json.obj(("age", Json.jNumber(i)))
+                    }.apply(a)
                   }
-                }
-            }}.apply(i2._1),
-              { (i5: Option[Int]) => {
-                i5 match {
-                  case None    => Json.jNull
-                  case Some(a) => { (i: Int) => Json.obj(("experienceInYears", Json.jNumber(i))) }.apply(a)
-                }
-              } }.apply(i2._2)
-            )
-          }}.apply(i1._1)
-          ,
-          { (i: Int) => Json.obj(("numberOfKudos", Json.jNumber(i))) }.apply(i1._2)
+                }.apply(i2._2)
+              )
+            }
+          }.apply(i1._2)
+        )
+      }
+
+    val personFLiteral: (((Option[(String, Int)], Option[Int]), Int)) => Json =
+      (i1: (((Option[(String, Int)], Option[Int]), Int))) => {
+        combine(
+          { (i2: (Option[(String, Int)], Option[Int])) =>
+            {
+              combine(
+                {
+                  (i3: Option[(String, Int)]) =>
+                    {
+                      i3 match {
+                        case None => Json.jEmptyObject
+                        case Some(a) => {
+                          { (i4: (String, Int)) =>
+                            {
+                              combine(
+                                { (s: String) =>
+                                  Json.obj(("name", Json.jString(s)))
+                                }.apply(i4._1), { (i: Int) =>
+                                  Json.obj(("age", Json.jNumber(i)))
+                                }.apply(i4._2)
+                              )
+                            }
+                          }.apply(a)
+                        }
+                      }
+                    }
+                }.apply(i2._1), { (i5: Option[Int]) =>
+                  {
+                    i5 match {
+                      case None => Json.jNull
+                      case Some(a) => { (i: Int) =>
+                        Json.obj(("experienceInYears", Json.jNumber(i)))
+                      }.apply(a)
+                    }
+                  }
+                }.apply(i2._2)
+              )
+            }
+          }.apply(i1._1), { (i: Int) =>
+            Json.obj(("numberOfKudos", Json.jNumber(i)))
+          }.apply(i1._2)
         )
       }
 
@@ -166,16 +221,30 @@ object Slides extends App {
 
   }
 
-  val person = ((Some(("Edward", 22)), Some(10)), 20)
-  val personF: ( ((Option[(String,Int)], Option[Int]), Int) ) => Json = ArgonautMarshall.marshall(example)
-  val result = personF(person)
-
+  val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
+  val personF =
+    ArgonautMarshall.marshall(example)
+  val result = personF(dryFalls)
 
   val finalValue = ArgonautUnmarshall.unmarshall(example)(result)
 
   result
   finalValue
-  ArgonautMarshall.personFLiteral(person)
+  ArgonautMarshall.waterfallLiteral(dryFalls)
 
+  case class Location(latitude: Int, longitude: Int)
+  case class Waterfall(name: String, location: Option[Location], height: Option[Int])
+
+  val genLocation = Generic[Location]
+  val genWaterfall = Generic[Waterfall]
+
+  val dryFallsHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
+  val dryFallsLocation: String :: Option[Location] :: Option[Int] :: HNil =
+    dryFallsHList.head ::
+      dryFallsHList.tail.head.map(genLocation.from) ::
+      dryFallsHList.tail.tail.head ::
+      dryFallsHList.tail.tail.tail
+
+  genWaterfall.from(dryFallsLocation)
 
 }

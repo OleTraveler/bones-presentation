@@ -101,22 +101,19 @@ case class TupleData[B,C]( b: ValueOp[B], c: ValueOp[C]) extends ValueOp[(B,C)]
 
 ---
 
-Data Structure Example 1
+Data Structure Examples
 
 ```tut
-TupleData( StringData, IntData )
 TupleData( StringData, OptionalData(IntData) )
 ```
 
----
-
-Data Structure Example 2
 ```tut
-TupleData( 
-  TupleData ( 
-    OptionalData ( 
-      TupleData( StringData, IntData )), 
-    OptionalData(IntData)), IntData )
+TupleData( StringData,
+  TupleData(
+    TupleData( IntData, IntData),
+    OptionalData(IntData)
+  )
+)
 ```
 
 ---
@@ -139,13 +136,12 @@ case class TupleData[B,C](leftValue: ValueOp[B], rightValue: ValueOp[C]) extends
 #### Parsing JSON
 
 ```tut
-val example = 
-  TupleData( 
-    TupleData( 
-      OptionalData ( TupleData( StringData("name"), IntData("age"))), 
-      OptionalData( IntData("experienceInYears"))), 
-    IntData("numberOfKudos")
-    )
+val example = TupleData( StringData("name"),
+                TupleData(
+                  OptionalData( TupleData( IntData("latitude"), IntData("longitude") )),
+                  OptionalData(IntData("height"))
+              ))
+
 ``` 
 
 ---
@@ -157,16 +153,16 @@ object DocInterpreter {
 
  def createDoc[A](op: ValueOp[A]): String = {
    op match {
-     case TupleData(b,c) => s"( ${createDoc(b)}, ${createDoc(c)})"
-     case OptionalData(b) => s"Optional( ${createDoc(b)} )"
-     case StringData(key) => s"${key}:String"
-     case IntData(key) => s"${key}:Int"
+     case TupleData(b,c) => s"${createDoc(b)} combined with ${createDoc(c)})"
+     case OptionalData(b) => s"${createDoc(b)} which is optional"
+     case StringData(key) => s"a String with key ${key}"
+     case IntData(key) => s"an Int with key ${key}"
    }
  } 
 }
 ```
 
-```tut:evaluated
+```tut
 DocInterpreter.createDoc(example)
 ```
 
@@ -221,22 +217,71 @@ object ArgonautMarshall {
 #### Usage
 ```tut:silent
 
-val personSchema = 
-  TupleData( 
-    TupleData( 
-      OptionalData ( TupleData( StringData("name"), IntData("age"))), 
-      OptionalData( IntData("experienceInYears"))), 
-    IntData("numberOfKudos")
-    )
+val waterfallSchema = 
+  TupleData( StringData("name"),
+    TupleData(
+      OptionalData( TupleData( IntData("latitude"), IntData("longitude") )),
+      OptionalData(IntData("height"))
+  ))
 
-val person = ( ( Some( ("Edward", 22) ), Some(10)), 20)  
+val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 ```
 
 #### Create Function and Pass Data
 ```tut
-val personToJson = ArgonautMarshall.marshall(personSchema)
-val personJson = personToJson(person)
+val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
+val waterfallJson = waterfallToJson(dryFalls)
 
+```
+
+---
+
+#### What is waterfallToJson?
+```tut:silent
+    val waterfallFLiteral
+      : ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json =
+      (i1: (String, (Option[(Int, Int)], Option[Int]))) => {           // <-- function params
+        ArgonautMarshall.combine(
+          { (s: String) =>
+            Json.obj(("name", Json.jString(s)))
+          }.apply(i1._1), { (i2: (Option[(Int, Int)], Option[Int])) => // <-- function params
+            {
+              ArgonautMarshall.combine(
+                {
+                  (i3: Option[(Int, Int)]) =>                          // <-- function params
+                    {
+                      i3 match {
+                        case None => Json.jEmptyObject
+                        case Some(a) => { (i4: (Int, Int)) =>          // <-- function params
+                          {
+                            ArgonautMarshall.combine({ (i: Int) =>     // <-- function params
+                              Json.obj(("lattitude", Json.jNumber(i)))
+                            }.apply(i4._1), { (i: Int) =>              //<-- function params
+                              Json.obj(("longitude", Json.jNumber(i)))
+                            }.apply(i4._2))
+                          }
+                        }.apply(a)
+                      }
+                    }
+                }.apply(i2._1), { (i: Option[Int]) =>                 //<-- function params
+                  i match {
+                    case None => Json.jNull
+                    case Some(a) => { (i: Int) =>
+                      Json.obj(("age", Json.jNumber(i)))
+                    }.apply(a)
+                  }
+                }.apply(i2._2)
+              )
+            }
+          }.apply(i1._2)
+        )
+      }
+```
+
+---
+
+```tut
+  waterfallFLiteral.apply(dryFalls)
 ```
 
 ---
@@ -248,11 +293,6 @@ import argonaut.Json.JsonAssoc
 object ArgonautUnmarshall {
       def unmarshall[A](op: ValueOp[A]) : Json => Either[String, A] = {
         op match {
-          case StringData(key) => json =>
-            findField(key, json).flatMap(_._2.string).toRight(s"String Not Found ${key}")
-          case IntData(key) => json =>
-            findField(key, json).flatMap(_._2.number).flatMap(_.toInt)
-              .toRight(s"Int Not Found ${key}")
           case op: OptionalData[b] =>
             val valueB = unmarshall(op.optionalValueOp) // Json => Either[String,Option[A]]
             json => {
@@ -269,6 +309,11 @@ object ArgonautUnmarshall {
               val right = rightF(json)
               combineTuple(left,right)
             }
+          case StringData(key) => json =>
+            findField(key, json).flatMap(_._2.string).toRight(s"String Not Found ${key}")
+          case IntData(key) => json =>
+            findField(key, json).flatMap(_._2.number).flatMap(_.toInt)
+              .toRight(s"Int Not Found ${key}")
         }
       }
 
@@ -290,7 +335,14 @@ object ArgonautUnmarshall {
 
 ---
 
-#### Compile, Interpret, Run
+#### full circle, JSON to Data
+```tut
+ArgonautUnmarshall.unmarshall(waterfallSchema)(waterfallJson)
+```
+
+---
+
+#### 2 Steps: Interpret, Run
 ```scala
           case op: OptionalData[b] =>
 
@@ -340,46 +392,6 @@ object ArgonautUnmarshall {
 
 ---
 
-#### Interpreted Code
-```tut:silent
-    val personFLiteral: ( ((Option[(String,Int)], Option[Int]), Int) ) => Json =
-      (i1: ( ((Option[(String,Int)], Option[Int]), Int) )) => {
-        ArgonautMarshall.combine(
-          { (i2: (Option[(String,Int)], Option[Int]) ) => {
-            ArgonautMarshall.combine(
-              { (i3: Option[(String,Int)]) => {
-                i3 match {
-                  case None => Json.jNull
-                  case Some(a) => {
-                    {(i4: (String,Int) ) => {
-                      ArgonautMarshall.combine(
-                        { (s: String) => Json.obj( ("name", Json.jString(s)) )}.apply(i4._1),
-                        { (i: Int) => Json.obj( ("id", Json.jNumber(i)) )}.apply(i4._2)
-                      )
-                    }}.apply(a)
-                  }
-                }
-            }}.apply(i2._1),
-              { (i5: Option[Int]) => {
-                i5 match {
-                  case None    => Json.jNull
-                  case Some(a) => { (i: Int) => Json.obj(("experienceInYears", Json.jNumber(i))) }.apply(a)
-                }
-              } }.apply(i2._2)
-            )
-          }}.apply(i1._1)
-          ,
-          { (i: Int) => Json.obj(("numberOfKudos", Json.jNumber(i))) }.apply(i1._2)
-        )
-      }
-```
-```tut
-  personFLiteral.apply(person)
-```
-
-
----
-
 ### new Features/improvements
 
 * case clases
@@ -388,7 +400,7 @@ object ArgonautUnmarshall {
 case class Location(countryIso: String, stateProvince: Option[String])
 case class Person(name: String, age: Int, location: Option[Location])
 ```
-  * Key should not be on the Primite data description, does not allow for hierarchical data.
+  * Key should not be on the Primative data description, does not allow for hierarchical data.
 
 
 ---
@@ -396,7 +408,7 @@ case class Person(name: String, age: Int, location: Option[Location])
 
 ### Shapeless HList - Quick Overview
 
-It's Heterogenius
+It's Heterogenius List
 
 ```tut:silent
 import shapeless.ops.hlist
@@ -404,19 +416,53 @@ import shapeless.ops.hlist.{Length, Prepend, Split}
 import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 ```
 
+
 Will allow us to flatten the tuple.
 ```tut
 val personTuple = ((("Eugene", 12), Some(12)), 5)
 val personHlist = "Eugene" :: 12 :: Some(12) :: 5 :: HNil
 ```
 
+---
+
 Can arbitrarily split an HList
 ```tut
 personHlist.head
 val split = Split[String::Int::Option[Int]::Int::HNil, Nat._2]
 split(personHlist)
-
 ```
+
+---
+
+Can prepend HList to HList
+```tut
+``` 
+
+---
+<details class="notes"><summary>N</summary>
+<p>
+Test
+</p>
+</details>
+
+Magic conversion from HList to case classes and vise versa.
+```tut:silent
+  case class Location(latitude: Int, longitude: Int)
+  case class Waterfall(name: String, location: Option[Location], height: Option[Int])
+
+  val genLocation = Generic[Location]
+  val genWaterfall = Generic[Waterfall]
+
+  val dryFallsHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
+  val dryFallsLocation: String :: Option[Location] :: Option[Int] :: HNil =
+    dryFallsHList.head :: dryFallsHList.tail.head.map(genLocation.from) :: dryFallsHList.tail.tail.head :: dryFallsHList.tail.tail.tail
+```
+```tut
+   val waterfall = genWaterfall.from(dryFallsLocation)
+   val waterfallHlist = genWaterfall.to(waterfall)
+```
+
+
 
 ---
 
@@ -458,14 +504,6 @@ case class MaxLength(max: Int) extends ValidationOp[String] {
 
 ![alt text](/cc-validation.png "Logo Title Text 1")
 
-
-
----
-
-#### 
-```tut
-   ArgonautUnmarshall.unmarshall(personSchema)(personJson)
-```
 
 ---
 Free Applicative - Describing Computations
