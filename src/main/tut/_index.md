@@ -27,34 +27,44 @@ Detailed Outline
 
 * What are GADTs?
   * Basics
-  * Free (Applicative|Monad)
+  * It's use in Free Applicative (but let's not go there)
   * Interpreters 
-  * Important: Interpret, then compute
-  * Simple Extraction Example
+  * Note: Interpret recursively, then compute
+  * Simple Marshall/Unmarshall Example
   * Performance
 * Validation Using GADT
   * Accumulating Errors
-  * Validating Data Before Instantiation
+  * Validating Data Before Object Instantiation
   * Validation using GADT
 * Using HList instead of Tuples
   * Split
   * Conversion to case classes.
+* DSL
+  * Making this usable
 * Interchange formats
   * JSON - Argonaut, Circe, LiftJson
   * BJSON
   * Protobuf
 * Describing Rest Endpoints
 * Creating Documentation
-  * Swagger
+  * Swagger (Wrapping OPP - other peoples projects)
 * CRUD - Final Steps
-  * Database Interpreters
-  * React Interpreters
+  * Database GADT Interpreters
+  * React GADT Interpreters
 * DEMO
-  * This is not a framework
+  * This is not a framework, it is a collection of functions
 * Your Domain Specific Types
   * Free Applicative - BYOGADT
-  * Interpreters
+  * Modifications to Interpreters to acommodate Free Ap
   
+
+---
+
+* What is the Bones project?
+  * Original Inent: JSON extraction with validation
+  * Create _generated_ functions from a schema using GADT interpreters
+  * Only difference between endpoints is a Schema
+  * Encapsilate 3rd party libraries behind an Interpreter
 
 ---
 
@@ -62,10 +72,14 @@ ADT - Algebraic Data Type
 
 ```tut:silent
 sealed abstract class ValueOp
+
 case object StringData extends ValueOp
-case object LongData extends ValueOp
-case class OptionalData(t1: ValueOp) extends ValueOp
-case class TupleData(t1: ValueOp, t2: ValueOp) extends ValueOp
+
+case object IntData extends ValueOp
+
+case class OptionalData(optionalValue: ValueOp) extends ValueOp
+
+case class TupleData(leftValue: ValueOp, rightValue: ValueOp) extends ValueOp
 ```
 
 ---
@@ -74,10 +88,14 @@ GADT - _Generalized_ Algebraic Data Type
 
 ```tut:silent:reset
 sealed abstract class ValueOp[A]
+
 case object StringData extends ValueOp[String]
-case object LongData extends ValueOp[Long]
-case class OptionalData[B](t1: ValueOp[B]) extends ValueOp[Option[B]]
-case class TupleData[B,C](t1: ValueOp[B], t2: ValueOp[C]) extends ValueOp[(B,C)]
+
+case object IntData extends ValueOp[Int]
+
+case class OptionalData[B](b: ValueOp[B]) extends ValueOp[Option[B]]
+
+case class TupleData[B,C]( b: ValueOp[B], c: ValueOp[C]) extends ValueOp[(B,C)]
 ``` 
 
 
@@ -86,56 +104,394 @@ case class TupleData[B,C](t1: ValueOp[B], t2: ValueOp[C]) extends ValueOp[(B,C)]
 Data Structure Example 1
 
 ```tut
-TupleData( StringData, OptionalData(LongData) )
+TupleData( StringData, IntData )
+TupleData( StringData, OptionalData(IntData) )
 ```
 
 ---
 
 Data Structure Example 2
 ```tut
-TupleData( TupleData ( OptionalData ( TupleData( StringData, LongData )), OptionalData(LongData)), LongData )
+TupleData( 
+  TupleData ( 
+    OptionalData ( 
+      TupleData( StringData, IntData )), 
+    OptionalData(IntData)), IntData )
 ```
 
 ---
 
-Digression 1a: Free Monad - Describing Actions
+#### Parsing JSON
+
+```tut:silent:reset
+sealed abstract class ValueOp[A]
+
+case class StringData(key: String)  extends ValueOp[String]
+
+case class IntData(key: String)  extends ValueOp[Int]
+
+case class OptionalData[B](optionalValueOp: ValueOp[B]) extends ValueOp[Option[B]]
+
+case class TupleData[B,C](leftValue: ValueOp[B], rightValue: ValueOp[C]) extends ValueOp[(B,C)]
+```
+---
+
+#### Parsing JSON
+
+```tut
+val example = 
+  TupleData( 
+    TupleData( 
+      OptionalData ( TupleData( StringData("name"), IntData("age"))), 
+      OptionalData( IntData("experienceInYears"))), 
+    IntData("numberOfKudos")
+    )
+``` 
+
+---
+
+#### First Interpreter: Print the type
+```tut:silent
+
+object DocInterpreter {
+
+ def createDoc[A](op: ValueOp[A]): String = {
+   op match {
+     case TupleData(b,c) => s"( ${createDoc(b)}, ${createDoc(c)})"
+     case OptionalData(b) => s"Optional( ${createDoc(b)} )"
+     case StringData(key) => s"${key}:String"
+     case IntData(key) => s"${key}:Int"
+   }
+ } 
+}
+```
+
+```tut:evaluated
+DocInterpreter.createDoc(example)
+```
+
+---
+
+#### Marshall Interpreter
+```tut:silent
+import argonaut._
+object ArgonautMarshall {
+
+  def marshall[A](op: ValueOp[A]): A => Json = {
+    op match {
+      case TupleData(l,r) => {
+        val fLeft = marshall(l)
+        val fRight = marshall(r)
+        (tuple: A) => {
+          combine( fLeft(tuple._1), fRight(tuple._2))
+        }
+      }
+
+      case OptionalData(aValueOp) => {
+        val fOptional = marshall(aValueOp)
+        (opt: A) => {
+          opt match {
+            case None => Json.jEmptyObject
+            case Some(a) => fOptional(a)
+          }
+        }
+      }
+
+      case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
+
+      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+
+
+    }
+
+  }
+
+  def combine(prefix: Json, postfix: Json): Json = {
+    val values1 = prefix.obj.toList.flatMap(_.toList)
+    val values2 = postfix.obj.toList.flatMap(_.toList)
+    Json.obj(values1 ::: values2: _*)
+  }
+
+}
+
+```
+
+---
+
+#### Usage
+```tut:silent
+
+val personSchema = 
+  TupleData( 
+    TupleData( 
+      OptionalData ( TupleData( StringData("name"), IntData("age"))), 
+      OptionalData( IntData("experienceInYears"))), 
+    IntData("numberOfKudos")
+    )
+
+val person = ( ( Some( ("Edward", 22) ), Some(10)), 20)  
+```
+
+#### Create Function and Pass Data
+```tut
+val personToJson = ArgonautMarshall.marshall(personSchema)
+val personJson = personToJson(person)
+
+```
+
+---
+
+#### Unmarshall Example
 
 ```tut:silent
-sealed trait KVStoreA[A]
-case class Put[T](key: String, value: T) extends KVStoreA[Unit]
-case class Get[T](key: String) extends KVStoreA[Option[T]]
-case class Delete(key: String) extends KVStoreA[Unit]
+import argonaut.Json.JsonAssoc
+object ArgonautUnmarshall {
+      def unmarshall[A](op: ValueOp[A]) : Json => Either[String, A] = {
+        op match {
+          case StringData(key) => json =>
+            findField(key, json).flatMap(_._2.string).toRight(s"String Not Found ${key}")
+          case IntData(key) => json =>
+            findField(key, json).flatMap(_._2.number).flatMap(_.toInt)
+              .toRight(s"Int Not Found ${key}")
+          case op: OptionalData[b] =>
+            val valueB = unmarshall(op.optionalValueOp) // Json => Either[String,Option[A]]
+            json => {
+              valueB(json) match {
+                case Left(_) => Right(None)
+                case Right(x) => Right(Some(x))
+              }
+            }
+          case TupleData(leftOp, rightOp) =>
+            val leftF = unmarshall(leftOp)
+            val rightF = unmarshall(rightOp)
+            json => {
+              val left = leftF(json)
+              val right = rightF(json)
+              combineTuple(left,right)
+            }
+        }
+      }
 
-import cats.free.Free
+      def combineTuple[B,C](b: Either[String,B], c: Either[String,C]): Either[String, (B,C)] = {
+        (b,c) match {
+          case ( Left(bErr), Left(cError) ) => Left(s"${bErr}|${cError}" )
+          case ( Left(bErr), _ ) => Left(bErr)
+          case ( _ , Left(cErr) ) => Left(cErr)
+          case ( Right(b), Right(c) ) => Right( (b,c) )
+        }
+      }
 
-type KVStore[A] = Free[KVStoreA, A]
+      def findField(key: String, json: Json) : Option[JsonAssoc] = {
+        json.obj.flatMap(_.toList.find(_._1 == key))
+      }
 
-import cats.free.Free.liftF
+    }
+```
+
+---
+
+#### Compile, Interpret, Run
+```scala
+          case op: OptionalData[b] =>
+
+            // This Code is evaluated before returning the function
+            // and is therefor only executed once per schema begin interpreted
+            val valueB = unmarshall(op.optionalValueOp)
+
+            // This function is executed many times
+            // whenever we are actually transforming data
+            json => {
+              valueB(json) match {
+                case Left(_) => Right(None)
+                case Right(x) => Right(Some(x))
+              }
+            }
+```
+---
+
+#### Do Not Do This
+
+```tut:silent
+  def marshall[A](op: ValueOp[A]): A => Json = a => {
+    op match {
+      case StringData(key) => Json.obj( (key, Json.jString(a)) )
+
+      case IntData(key) => Json.obj( (key, Json.jNumber(a)) )
+
+      case OptionalData(aValueOp) => {
+        val fOptional = marshall(aValueOp)
+        a match {
+          case None => Json.jNull
+          case Some(a) => fOptional(a)
+        }
+      }
+
+      case TupleData(l,r) => {
+        val fLeft = marshall(l)
+        val fRight = marshall(r)
+        ArgonautMarshall.combine( fLeft(a._1), fRight(a._2))
+      }
+    }
+
+  }
+
+
+```
+
+---
+
+#### Interpreted Code
+```tut:silent
+    val personFLiteral: ( ((Option[(String,Int)], Option[Int]), Int) ) => Json =
+      (i1: ( ((Option[(String,Int)], Option[Int]), Int) )) => {
+        ArgonautMarshall.combine(
+          { (i2: (Option[(String,Int)], Option[Int]) ) => {
+            ArgonautMarshall.combine(
+              { (i3: Option[(String,Int)]) => {
+                i3 match {
+                  case None => Json.jNull
+                  case Some(a) => {
+                    {(i4: (String,Int) ) => {
+                      ArgonautMarshall.combine(
+                        { (s: String) => Json.obj( ("name", Json.jString(s)) )}.apply(i4._1),
+                        { (i: Int) => Json.obj( ("id", Json.jNumber(i)) )}.apply(i4._2)
+                      )
+                    }}.apply(a)
+                  }
+                }
+            }}.apply(i2._1),
+              { (i5: Option[Int]) => {
+                i5 match {
+                  case None    => Json.jNull
+                  case Some(a) => { (i: Int) => Json.obj(("experienceInYears", Json.jNumber(i))) }.apply(a)
+                }
+              } }.apply(i2._2)
+            )
+          }}.apply(i1._1)
+          ,
+          { (i: Int) => Json.obj(("numberOfKudos", Json.jNumber(i))) }.apply(i1._2)
+        )
+      }
 ```
 ```tut
-liftF[KVStoreA, Unit](Put[String]("name", "King Gizzard"))
+  personFLiteral.apply(person)
 ```
+
+
 ---
 
-Digression 1b: Free Applicative - Describing Data
+### new Features/improvements
+
+* case clases
+  * Hierarchical
+```tut:silent
+case class Location(countryIso: String, stateProvince: Option[String])
+case class Person(name: String, age: Int, location: Option[Location])
+```
+  * Key should not be on the Primite data description, does not allow for hierarchical data.
+
+
+---
+
+
+### Shapeless HList - Quick Overview
+
+It's Heterogenius
 
 ```tut:silent
-sealed abstract class ValidationOp[A]
-case class Size(size: Int) extends ValidationOp[Boolean]
-case object HasNumber extends ValidationOp[Boolean]
+import shapeless.ops.hlist
+import shapeless.ops.hlist.{Length, Prepend, Split}
+import shapeless.{::, Generic, HList, HNil, Nat, Succ}
+```
 
+Will allow us to flatten the tuple.
+```tut
+val personTuple = ((("Eugene", 12), Some(12)), 5)
+val personHlist = "Eugene" :: 12 :: Some(12) :: 5 :: HNil
+```
+
+Can arbitrarily split an HList
+```tut
+personHlist.head
+val split = Split[String::Int::Option[Int]::Int::HNil, Nat._2]
+split(personHlist)
+
+```
+
+---
+
+#### Mirror HList
+
+---
+
+
+
+# Validation Using GADT
+
+---
+
+```tut:silent
+trait ValidationOp[T] {
+  def isValid: T => Boolean
+  def defaultError(t: T): String
+  def description: String
+}
+
+case class MaxLength(max: Int) extends ValidationOp[String] {
+  val isValid: String => Boolean = _.length <= max
+
+  override def defaultError(t: String): String = s"$t is greater than $max"
+
+  override def description: String = s"maximum of $max"
+}
+
+
+
+```
+
+---
+
+
+#### Validation
+
+[GV](https://dreampuf.github.io/GraphvizOnline/#%0Adigraph%20G%20%7B%0A%0A%20%20subgraph%20cluster_0%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20String%22-%3E%20%22Max%2030%22%3B%0A%20%20%20%20%22Is%20String%22%20-%3E%20%22Alpha%20Only%22%3B%0A%20%20%20%20label%20%3D%20%22Cardholder%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_1%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Month%20Is%20Number%22%20-%3E%20%22Is%20between%201%20and%2012%22%3B%0A%20%20%20%20label%20%3D%20%22Exp%20Month%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_2%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Year%20Is%20Number%22%20-%3E%20%22Is%20After%202018%22%3B%0A%20%20%20%20label%20%3D%20%22Exp%20Year%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_3%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22CC%20Is%20Number%22%20-%3E%20%22Luhn%20Check%22%3B%0A%20%20%20%20%22CC%20Is%20Number%22%20-%3E%20%22Starts%20with%203%2C4%2C5%20or%207%22%3B%0A%20%20%20%20label%20%3D%20%22Card%20Number%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_4%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20between%201%20and%2012%22%20-%3E%20%22Is%20After%20Today%22%3B%0A%20%20%20%20%22Is%20After%202018%22%20-%3E%20%22Is%20After%20Today%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_5%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Max%2030%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Alpha%20Only%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Is%20After%20Today%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Luhn%20Check%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Starts%20with%203%2C4%2C5%20or%207%22%20-%3E%20%22Credit%20Card%22%0A%20%20%20%20%0A%20%20%20%20%20%20%0A%20%20%7D%0A%20%20%0A%20%20%0A%20%20%0A%20%20%0A%20%20JSON%20-%3E%20%22Is%20String%22%3B%0A%20%20JSON%20-%3E%20%22Month%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Year%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22CC%20Is%20Number%22%0A%0A%20%20JSON%20%5Bshape%3DMdiamond%5D%3B%0A%7D)
+
+![alt text](/cc-validation.png "Logo Title Text 1")
+
+
+
+---
+
+#### 
+```tut
+   ArgonautUnmarshall.unmarshall(personSchema)(personJson)
+```
+
+---
+Free Applicative - Describing Computations
+
+```tut:silent:reset
 import cats.free.FreeApplicative
 import cats.free.FreeApplicative.lift
-type Validation[A] = FreeApplicative[ValidationOp, A]
+
+sealed abstract class ValueOp[A]
+type Value[A] = FreeApplicative[ValueOp, A]
+
+case object StringData extends ValueOp[String]
+case object IntData extends ValueOp[Int]
+case class Tuple[B,C](b: Value[B], c: Value[C]) extends ValueOp[(B,C)]
+```
+
+```tut:silent
 ```
 ```tut
-lift(Size(1))
+lift(StringData)
 ```
 
 ---
 
-#### Free Monad
-* Continuations - not our goal
+```tut:silent
+```
 
 ---
 
@@ -148,48 +504,6 @@ lift(Size(1))
 ---
 
 How far will GADTs take us?
-
----
-
-#### Interchange Formats are Key Value Pairs.
-
-```tut:silent:reset
-sealed abstract class ValueOp[A]
-case class StringData(key: String)  extends ValueOp[String]
-case class LongData(key: String)  extends ValueOp[Long]
-case class OptionalData[B](t1: ValueOp[B]) extends ValueOp[Option[B]]
-case class TupleData[B,C](t1: ValueOp[B], t2: ValueOp[C]) extends ValueOp[(B,C)]
-```
-
-```tut
-val example = 
-  TupleData( 
-    TupleData( 
-      OptionalData ( TupleData( StringData("name"), LongData("age"))), 
-      OptionalData( LongData("experienceInYears"))), 
-    LongData("numberOfKudos")
-    )
-``` 
-
----
-
-```tut:silent
-object DocInterpreter {
-
- def createDoc[A](op: ValueOp[A]): String = {
-   op match {
-     case StringData(key) => s"${key}:String"
-     case LongData(key) => s"${key}:Long"
-     case OptionalData(b) => s"Optional( ${createDoc(b)} )"
-     case TupleData(b,c) => s"Tuple( ${createDoc(b)}, ${createDoc(c)})"
-   }
- } 
-}
-```
-
-```tut:nofail
-DocInterpreter.createDoc(example)
-```
 
 
 
