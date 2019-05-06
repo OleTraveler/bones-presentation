@@ -1,4 +1,68 @@
+#### to create slides
+
 use `sbt` and then ren `~tut` to continuously compile.
 use `hugo server` to regenreate website.
 
 edit `src/main/tut/_index.md` for the presentation which triggers sbt build which outputs files which generates hugo website regen.
+
+
+### Overview
+
+Detailed Outline
+
+* Intro (~3 Min)
+* What are GADTs? (Deepish Dive ~15 Min)
+  * Basics
+  * Interpreters
+  * Simple JSON Marshall/Unmarshall Example
+  * Note: Interpret recursively, then compute
+  * Note: Performance
+* Using HList instead of Tuples (~5 Min)
+  * Split, Prepend
+  * Conversion to case classes.
+  * Improved solution (2 Algebras)
+* Validation Using GADT (~10 Min)
+  * Accumulating Errors
+  * Validating Data Before Object Instantiation
+  * Validation using GADT
+* Protobuf (~5 Min)
+* Describing Rest Endpoints (~5 Min)
+  *  
+* List what interpreters are available. (~ 2 minutes)
+  * Swagger
+  * Database GADT Interpreters
+  * React GADT Interpreters
+* DEMO (~ 5 min)
+  * This is not a framework, it is a collection of functions
+* Your Domain Specific Types (~ 2 min)
+  * Coproduct - BYOGADT
+  * Modifications to Interpreters to coproduct
+* Relationship to Category Theory (~ 3 mint)
+  * Free Applicative
+  * FunctionK / Natural Transformation
+
+
+## What are GADTs.
+
+In this section we will take a deep dive on what GADTs are, how to create a GADT data structure and show some examples of Interpreters.
+
+We will also run through some Gotchas and talk about perfomrance.
+
+## Using HList instead of Tuples
+
+Describe what we gain using HList.  
+  * Ability to flatten.
+  * Convert to case class
+  * Can prepend groups of HLists
+
+Describe how we are dealing with the 'key' from KVP.  Describe how we now have 2 GADT Algebras.
+
+Finally, briefly show an example Data Structure and Interpreter.
+
+## Validation Using GADTS
+
+Error accumulation vs short circuit.  Error accumulation can occurr on independant input values.  However, short ciruciting will occur when we start to group values together.
+
+Show Validation example and then where we would add this code during marshalling.
+
+## 

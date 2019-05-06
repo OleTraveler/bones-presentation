@@ -38,6 +38,13 @@ object Slides extends App {
     }
   }
 
+  object DocInterpreter2 {
+
+    case class Description[A](desc: String, childDescriptions: List[Description[_]])
+
+    def createDoc[A](op: ValueOp[A]): String = ???
+  }
+
   DocInterpreter.createDoc(example)
 
   import argonaut._
@@ -246,5 +253,9 @@ object Slides extends App {
       dryFallsHList.tail.tail.tail
 
   genWaterfall.from(dryFallsLocation)
+
+  val prefix = "Dry Falls" :: Some( 35 :: -83 :: HNil) :: HNil
+  val suffix = Some(80) :: HNil
+  prefix ::: suffix
 
 }
