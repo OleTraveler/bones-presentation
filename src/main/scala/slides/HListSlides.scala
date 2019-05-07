@@ -1,7 +1,7 @@
 package slides
 
 import argonaut.Json
-import shapeless.ops.hlist.{Length, Prepend, Split}
+import shapeless.ops.hlist.{IsHCons, Length, Prepend, Split}
 import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 
 object HListSlides {
@@ -22,22 +22,23 @@ object HListSlides {
   case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 
   sealed abstract class KvpHList[H <: HList, N <: Nat] {
-    def ::[A](v: KeyValueDefinition[A]): KvpSingleValueHead[A, H, N, A :: H]
+    def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
   }
 
   object KvpNil extends KvpHList[HNil, Nat._0] {
-    def ::[A](v: KeyValueDefinition[A]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil)
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
+      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
   }
 
   case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
   (
     fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N]
+    tail: KvpHList[H, N],
+    isHCons: IsHCons.Aux[OUT, A, H]
   ) extends KvpHList[OUT, Succ[N]] {
-    def ::[A](v: KeyValueDefinition[A])
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
     : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-      KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this)
+      KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
   }
 
   case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
@@ -46,7 +47,9 @@ object HListSlides {
     prepend: Prepend.Aux[HH, HT, HO],
     split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
   ) extends KvpHList[HO, NO] {
-    def ::[A](v: KeyValueDefinition[A]) = ???
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
+      KvpSingleValueHead[A, HO, NO, A :: HO] =
+      KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
   }
 
 
@@ -58,13 +61,13 @@ object HListSlides {
       kvpHList match {
         case KvpNil => (nil: H) => Json.jEmptyObject
 
-        case KvpSingleValueHead(fieldDefinition, tail) => {
-          val kvpValueF = marshallKvpValue(fieldDefinition.op)
-          val kvpHListF = marshallKvpHList(tail)
+        case kvp: KvpSingleValueHead[a,h,n,H] => {
+          val kvpValueF = marshallKvpValue(kvp.fieldDefinition.op)
+          val kvpHListF = marshallKvpHList(kvp.tail)
           (h: H) => {
-            val head = h.head
-            val tail = h.tail
-            val headResult = kvpValueF(fieldDefinition.key, head)
+            val head = h.head(kvp.isHCons)
+            val tail = h.tail(kvp.isHCons)
+            val headResult = kvpValueF(kvp.fieldDefinition.key, head)
             val tailResult = kvpHListF(tail)
             combine(headResult, tailResult)
           }
@@ -106,6 +109,32 @@ object HListSlides {
     }
 
   }
+
+
+  case class Location(lat: Int, long: Int)
+  case class Waterfall(name: String, location: Option[Location], height: Option[Int])
+
+  val locationHlistSchema =
+      KeyValueDefinition("latitude", IntData) ::
+      KeyValueDefinition("longitude", IntData) ::
+      KvpNil
+
+  val genericLocation = Generic[Location]
+  val locationSchema = KvpConvertData(locationHlistSchema, genericLocation.from, genericLocation.to)
+
+  val waterfallHlistSchema =
+    KeyValueDefinition("name", StringData) ::
+    KeyValueDefinition("location", OptionalData(locationSchema)) ::
+    KeyValueDefinition("height", OptionalData(IntData)) ::
+    KvpNil
+
+  val genericWaterfall = Generic[Waterfall]
+  val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
+
+
+
+
+
 
 
 }

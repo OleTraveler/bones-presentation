@@ -252,7 +252,7 @@ val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 #### Create Function and Pass Data
 ```scala
 scala> val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$7424/689439650@5ea8660e
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$6017/1497125569@632163c6
 
 scala> val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {"name":"Dry Falls","latitude":35,"longitude":-83,"height":80}
@@ -472,7 +472,7 @@ case class Waterfall(name: String, location: Option[Location], height: Option[In
 The heterogenius list
 
 ```scala
-import shapeless.ops.hlist.{Length, Prepend, Split}
+import shapeless.ops.hlist.{IsHCons, Length, Prepend, Split}
 import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 ```
 
@@ -500,7 +500,7 @@ scala> waterfallHlist.tail
 res1: Int :: Some[Int] :: Int :: shapeless.HNil = 12 :: Some(12) :: 5 :: HNil
 
 scala> val split = Split[String::Int::Option[Int]::Int::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Int :: Option[Int] :: Int :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Int :: shapeless.HNil; type Suffix = Option[Int] :: Int :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@3d787e70
+split: shapeless.ops.hlist.Split[String :: Int :: Option[Int] :: Int :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Int :: shapeless.HNil; type Suffix = Option[Int] :: Int :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@406840e
 
 scala> split(waterfallHlist)
 res2: split.Out = (Eugene :: 12 :: HNil,Some(12) :: 5 :: HNil)
@@ -508,7 +508,7 @@ res2: split.Out = (Eugene :: 12 :: HNil,Some(12) :: 5 :: HNil)
 
 ---
 
-Can prepend HList to HList
+Can prepend HLists of arbitrary size
 ```scala
 scala> val prefix = "Dry Falls" :: Some( 35 :: -83 :: HNil) :: HNil
 prefix: String :: Some[Int :: Int :: shapeless.HNil] :: shapeless.HNil = Dry Falls :: Some(35 :: -83 :: HNil) :: HNil
@@ -545,17 +545,6 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 
 ---
 
-#### HList
-
-  * types to use in a schema 
-  * values to feed a functions
-  * Mirror HList as a GADT
-  * Split GADT base trait
-    * KvpValue
-    * KvpHList
-
----
-
 #### Refactor KvpValue
 
 <details class="notes"><summary>?</summary>
@@ -565,135 +554,82 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 </p>
 </details>
 
-```scala
-sealed abstract class KvpValue[A]
-
-case object StringData  extends KvpValue[String]
-
-case object IntData  extends KvpValue[Int]
-
-case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
-```
+* Split GADT into two algebras
+  * KvpValue
+  * KvpHList
+     * Head of list will have a key/value class: `case class KeyValueDefinition[A](key: String, op: KvpValue[A])`
+     * Mirrors HList functionality for prepend
+  * Add a KvpConvertData to the KvpValue algebra
+     * Used to signify conversion to/from HList
+     * Bubble up the case class as the type.
+  * Two interpreters which recursively call each other for hierarchical data
 
 
 ---
 
-<details class="notes"><summary>?</summary>
-<p>
-Need N <: Nat for prepend HList which will not be demonstrated.
-</p>
-</details>
 
-#### Base Trait and HNil
+#### Refactored KvpValue
 
 ```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat]
-object KvpNil extends KvpHList[HNil, Nat._0]
+  sealed abstract class KvpValue[A]
+
+  case object StringData extends KvpValue[String]
+
+  case object IntData extends KvpValue[Int]
+
+  case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
+
+  case class KvpHListData[H <: HList, N<:Nat](kvpHList: KvpHList[H, N]) extends KvpValue[H]
+
+  case class KvpConvertData[H<:HList, N<:Nat, A](kvpHList: KvpHList[H,N], fha: H => A, fah: A => H) extends KvpValue[A]
 ```
-
----
-
-### Prepend a Value
-
-
-<details class="notes"><summary>?</summary>
-<p>
-* KvpSingleValueHead is a recursive type.
-</p>
-</details>
-
 
 ```scala
 case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 ```
 
-Define KvpSingleValueHead
-```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat]
-
-object KvpNil extends KvpHList[HNil, Nat._0]
-
-case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H](
-    fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N]
-) extends KvpHList[OUT, Succ[N]]
-```
-
 ---
 
-<details><summary>?</summary>
-<p>
-* Most dense slide.
-* :: is short for "Prepend On Value"
-* <: Lower bound
-* H :: HNil prepend a the type level.
-</p>
-</details>
-#### Implement :: for KvpNil
+#### New KvpHList
+
 ```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat] 
+  sealed abstract class KvpHList[H <: HList, N <: Nat] {
+    def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
+  }
 
-case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H](
+  object KvpNil extends KvpHList[HNil, Nat._0] {
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
+      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
+  }
+
+  case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
+  (
     fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N]
-) extends KvpHList[OUT, Succ[N]] 
-
-
-object KvpNil extends KvpHList[HNil, Nat._0] {
-  def ::[A](v: KeyValueDefinition[A]) : KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil)
-}
-```
-
----
-
-#### Implement :: for KvpSingleValueHead
-```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat] 
-
-case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H](
-    fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N]
-) extends KvpHList[OUT, Succ[N]] {
-  def ::[A](v: KeyValueDefinition[A])
+    tail: KvpHList[H, N],
+    isHCons: IsHCons.Aux[OUT, A, H]
+  ) extends KvpHList[OUT, Succ[N]] {
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
     : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-    KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this)  
-}
+      KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
+  }
 
-object KvpNil extends KvpHList[HNil, Nat._0]
+  case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
+    head: KvpHList[HH, HN],
+    tail: KvpHList[HT, NT],
+    prepend: Prepend.Aux[HH, HT, HO],
+    split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
+  ) extends KvpHList[HO, NO] {
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
+      KvpSingleValueHead[A, HO, NO, A :: HO] =
+      KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
+  }
 
-```
 
----
-
-```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat]
-
-case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H](
-    fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N]
-) extends KvpHList[OUT, Succ[N]] {
-  def ::[A](v: KeyValueDefinition[A])
-    : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-    KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this)
-}
-object KvpNil extends KvpHList[HNil, Nat._0] {
-  def ::[A](v: KeyValueDefinition[A]) : KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil)
-}
 
 ```
 
----
-
-#### Nested JSON
-```scala
-case class KvpHListData[H<:HList,N<:Nat](kvpHList: KvpHList[H,N]) extends KvpValue[H]
-````
 
 ---
-
-
 
 ### Two different GADT
 ```scala
@@ -704,123 +640,70 @@ object ArgonautMarshall {
 }
 ```
 
+
 ---
 
+#### Waterfall Example
 
-
-
-#### Kvp HList
 ```scala
-    def marshallKvpHList[H<:HList,N<:Nat](kvpHList: KvpHList[H,N]): H => Json = {
-      kvpHList match {
-        case KvpNil => (nil: H) => Json.jEmptyObject
-          
-        case KvpSingleValueHead(fieldDefinition, tail) => {
-          val kvpValueF = marshallKvpValue(fieldDefinition.op)
-          val kvpHListF = marshallKvpHList(tail)
-          (h: H) => {
-            val head = h.head
-            val tail = h.tail
-            val headResult = kvpValueF(fieldDefinition.key, head)
-            val tailResult = kvpHListF(tail)
-            combine(headResult, tailResult)
-          }
-        }
-      }
-    }
+  case class Location(lat: Int, long: Int)
+  case class Waterfall(name: String, location: Option[Location], height: Option[Int])
+
+  val locationHlistSchema =
+      KeyValueDefinition("latitude", IntData) ::
+      KeyValueDefinition("longitude", IntData) ::
+      KvpNil
+
+  val genericLocation = Generic[Location]
+  val locationSchema = KvpConvertData(locationHlistSchema, genericLocation.from, genericLocation.to)
+
+  val waterfallHlistSchema =
+    KeyValueDefinition("name", StringData) ::
+    KeyValueDefinition("location", OptionalData(locationSchema)) ::
+    KeyValueDefinition("height", OptionalData(IntData)) ::
+    KvpNil
+
+  val genericWaterfall = Generic[Waterfall]
+
 ```
-
-
----
-
-#### Kvp Value
-```scala
-    def marshallKvpValue[A](op: KvpValue[A]): (Key, A) => Json = {
-      op match {
-        case StringData =>
-          (key: Key, str: String) => Json.obj((key, Json.jString(str)))
-        case IntData =>
-          (key: Key, i: Int) => Json.obj((key, Json.jNumber(i)))
-        case OptionalData(aValueOp) => {
-          val fOptional = marshallKvpValue(aValueOp)
-          (key: String, opt: A) =>
-          {
-            opt match {
-              case None    => Json.jNull
-              case Some(a) => fOptional(key, a)
-            }
-          }
-        }
-        case op: KvpHListData[h,n] => {
-          val kvpHListF = marshallKvpHList(op.kvpHList)
-          (key: String, hList: A) => {
-            val kvpHListValue: Json = kvpHListF(hList.asInstanceOf[h])
-            Json.obj( (key, kvpHListValue) )
-          }
-        }
-      }
-
-    }
-```
-
----
-
-### Usage
 
 
 
 
 ```scala
-val locationSchema = 
-   KeyValueDefinition("latitude", IntData) :: KeyValueDefinition("longitude", IntData) :: KvpNil
-
-val waterfallSchema = KeyValueDefinition("name", StringData) :: KeyValueDefinition("location", OptionalData(KvpHListData(locationSchema))) :: KeyValueDefinition("height", OptionalData(IntData)) :: KvpNil
-
-val toJsonF = ArgonautMarshall.marshallKvpHList(waterfallSchema)
-
-val dryFallsHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
-toJsonF(dryFallsHList)
-
+scala>   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@34ebbdd9,shapeless.ops.hlist$IsHCons$$anon$156@403ce676),shapeless.ops.hlist$IsHCons$$anon$156@155e61d5),slides.HListSlides$$$Lambda$6108/226012376@2178c07b,slides.HListSlides$$$Lambda$6109/2104309086@4814b4f8))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSlid...
 ```
 
----
-<details class="notes"><summary>?</summary>
-<p>
-fha and fah are derived from Generic[A]
-</p>
-</details>
-#### fha and fah are derived from Generic[A]
-```scala
-case class KvpConvertData[H<:HList, N<:Nat, A](kvpHList: KvpHList[H,N], fha: H => A, fah: A => H) extends KvpValue[A]
-```
----
-
-#### KvpHListHead
-Allows us to define *:::*
-```scala
-  case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
-    head: KvpHList[HH, HN],
-    tail: KvpHList[HT, NT],
-    prepend: Prepend.Aux[HH, HT, HO],
-    split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
-  ) extends KvpHList[HO, NO] {
-    def ::[A](v: KeyValueDefinition[A]) = ???
-  }
-```
 
 ---
 
 
 
 #### Final Thoughts on KvpHList
-  * Unmarshall implementation
   * There is a DSL to clean up usage
 
 ---
 
-# Validation Using GADT
+# Validation
+
+[GV](https://dreampuf.github.io/GraphvizOnline/#%0Adigraph%20G%20%7B%0A%0A%20%20subgraph%20cluster_0%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20String%22-%3E%20%22Max%2030%22%3B%0A%20%20%20%20%22Is%20String%22%20-%3E%20%22Words%20Only%22%3B%0A%20%20%20%20label%20%3D%20%22Name%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_1%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%20Is%20Number%22%20-%3E%20%22Lat%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Latitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_2%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lon%20Is%20Number%22%20-%3E%20%22Lon%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Longitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_3%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Greater%20than%200%22%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Less%20than%203%2C212%20ft%22%3B%0A%20%20%20%20label%20%3D%20%22Card%20Number%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_4%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%20%20%22Lon%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_5%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Max%2030%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Words%20Only%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Is%20in%20WNC%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Greater%20than%200%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Less%20than%203%2C212%20ft%22%20-%3E%20%22Waterfall%22%0A%20%20%7D%0A%20%20%0A%20%20%0A%20%20%0A%20%20%0A%20%20JSON%20-%3E%20%22Is%20String%22%3B%0A%20%20JSON%20-%3E%20%22Lat%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Lon%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Height%20Is%20Number%22%3B%0A%0A%20%20JSON%20%5Bshape%3DMdiamond%5D%3B%0A%7D)
+
+![waterfall](/waterfall-validation.png "Logo Title Text 1")
 
 ---
+
+# Validation Rules
+  * Short Circuit
+     * Changing datatypes
+     * Combining datatypes (hierarchical data)
+  * Accumulate
+     * At each KVP Value
+     * Each input until combining   
+
+---
+
+# Validation Using GADT
 
 ```scala
 trait ValidationOp[T] {
@@ -836,57 +719,23 @@ case class MaxLength(max: Int) extends ValidationOp[String] {
 
   override def description: String = s"maximum of $max"
 }
-
-
-
 ```
 
 ---
 
-
-#### Validation
-
-[GV](https://dreampuf.github.io/GraphvizOnline/#%0Adigraph%20G%20%7B%0A%0A%20%20subgraph%20cluster_0%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20String%22-%3E%20%22Max%2030%22%3B%0A%20%20%20%20%22Is%20String%22%20-%3E%20%22Alpha%20Only%22%3B%0A%20%20%20%20label%20%3D%20%22Cardholder%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_1%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Month%20Is%20Number%22%20-%3E%20%22Is%20between%201%20and%2012%22%3B%0A%20%20%20%20label%20%3D%20%22Exp%20Month%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_2%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Year%20Is%20Number%22%20-%3E%20%22Is%20After%202018%22%3B%0A%20%20%20%20label%20%3D%20%22Exp%20Year%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_3%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22CC%20Is%20Number%22%20-%3E%20%22Luhn%20Check%22%3B%0A%20%20%20%20%22CC%20Is%20Number%22%20-%3E%20%22Starts%20with%203%2C4%2C5%20or%207%22%3B%0A%20%20%20%20label%20%3D%20%22Card%20Number%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_4%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20between%201%20and%2012%22%20-%3E%20%22Is%20After%20Today%22%3B%0A%20%20%20%20%22Is%20After%202018%22%20-%3E%20%22Is%20After%20Today%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_5%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Max%2030%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Alpha%20Only%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Is%20After%20Today%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Luhn%20Check%22%20-%3E%20%22Credit%20Card%22%3B%0A%20%20%20%20%22Starts%20with%203%2C4%2C5%20or%207%22%20-%3E%20%22Credit%20Card%22%0A%20%20%20%20%0A%20%20%20%20%20%20%0A%20%20%7D%0A%20%20%0A%20%20%0A%20%20%0A%20%20%0A%20%20JSON%20-%3E%20%22Is%20String%22%3B%0A%20%20JSON%20-%3E%20%22Month%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Year%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22CC%20Is%20Number%22%0A%0A%20%20JSON%20%5Bshape%3DMdiamond%5D%3B%0A%7D)
-
-![alt text](/cc-validation.png "Logo Title Text 1")
-
-
----
-Free Applicative - Describing Computations
+# Interpreter
 
 ```scala
-import cats.free.FreeApplicative
-import cats.free.FreeApplicative.lift
+def isValid[A](op: ValidationOp[A]): A => Either[String, A] = {
+  a => if (op.isValid(a)) Right(a) else Left(op.defaultError(a))
+}
+def doc[A](op: ValidationOp[A]): String = {
+  op.description
+}
 
-sealed abstract class KvpValue[A]
-type Value[A] = FreeApplicative[KvpValue, A]
-
-case object StringData extends KvpValue[String]
-case object IntData extends KvpValue[Int]
-case class Tuple[B,C](b: Value[B], c: Value[C]) extends KvpValue[(B,C)]
+case class StringData(validationOps: ValidationOp[String]) extends KvpValue[String]
 ```
 
-```scala
-```
-```scala
-scala> lift(StringData)
-res0: cats.free.FreeApplicative.FA[KvpValue,String] = FreeApplicative(...)
-```
-
----
-
-```scala
-```
-
----
-
-#### Free Applicative
-* Describe Data
-* Interpreters convert GADTs
-* Interpreters consume the entire data structure
-* Wrapping and Unwrapping is complex
-
----
 
 
 
