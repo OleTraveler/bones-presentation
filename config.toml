@@ -1,4 +1,4 @@
-baseURL = ""
+baseURL = "bones-presentation"
 languageCode = "en-us"
 title = "Bones Presentation"
 theme = "reveal-hugo"
