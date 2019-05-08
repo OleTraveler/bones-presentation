@@ -480,10 +480,10 @@ val waterfallHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNi
 
 Can arbitrarily split an HList
 ```tut
-val waterfallHlist = "Eugene" :: 12 :: Some(12) :: 5 :: HNil
+val waterfallHlist = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
 waterfallHlist.head
 waterfallHlist.tail
-val split = Split[String::Int::Option[Int]::Int::HNil, Nat._2]
+val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
 split(waterfallHlist)
 ```
 
@@ -698,7 +698,7 @@ case class MaxLength(max: Int) extends ValidationOp[String] {
 
 ---
 
-# Interpreter
+#### Validation Interpreter
 
 ```scala
 def isValid[A](op: ValidationOp[A]): A => Either[String, A] = {
@@ -707,8 +707,62 @@ def isValid[A](op: ValidationOp[A]): A => Either[String, A] = {
 def doc[A](op: ValidationOp[A]): String = {
   op.description
 }
+```
 
+---
+#### Accumulate errors in Primitive Types
+
+
+```scala
 case class StringData(validationOps: ValidationOp[String]) extends KvpValue[String]
+
+def unmarshall[A](kvpValue: KvpValue[A]): (Key, Json) => Either[NonEmptyList[String],A] = {
+kvpValue match {
+  case StringData(validations) =>
+    (key, json) =>
+      for {
+        jsonString <- json.field(key).toRight(NonEmptyList.one(s"Field with key $key not found."))
+        str <- jsonString.string.toRight(NonEmptyList.one(s"Field with key $key is not a String"))
+        validStr <- applicativeCombine(validations.map(validationOp => isValid(validationOp).apply(str)))
+      } yield validStr
+}
+}
+
+```
+
+---
+
+#### Accumulate results, Short Circuit Product Type
+
+```scala
+  case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
+  (
+    fieldDefinition: KeyValueDefinition[A],
+    tail: KvpHList[H, N],
+    isHCons: IsHCons.Aux[OUT, A, H],
+    validationOps: List[ValidationOp[OUT]]
+  ) extends KvpHList[OUT, Succ[N]]
+
+
+  def accumulate[A,B,C](e1: Either[NonEmptyList[String],A], e2: Either[NonEmptyList[String],B])(f: (A,B) => C)
+    : Either[NonEmptyList[String],C] = ???
+
+  // Doesn't quite compile.
+  def unmarshallHList[H<:HList, N<:Nat](kvpValue: KvpHList[H,N]): Json => Either[NonEmptyList[String],H] = {
+    kvpValue match {
+      case kvp: KvpSingleValueHead[a,h,n,o] =>
+        val kvpF = unmarshall(kvp.fieldDefinition.op)
+        val tailF = unmarshallHList(kvp.tail)
+        (json) =>
+          for {
+            jsonString <- json.obj.toRight(NonEmptyList.one(s"JSON is not an object"))
+            hlist <- accumulate(kvpF(kvp.fieldDefinition.key,json), tailF(json))((t1: a,t2: h) => {
+              (t1 :: t2)
+            })
+            validStr <- applicativeTraverse(kvp.validationOps.map(validationOp => isValid(validationOp).apply(hlist)))
+          } yield validStr
+    }
+  }
 ```
 
 

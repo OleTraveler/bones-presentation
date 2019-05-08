@@ -1,7 +1,9 @@
 package slides
 
 import argonaut.Json.JsonAssoc
-import shapeless.{Generic, HNil, ::}
+import cats.Show
+import shapeless.{::, Generic, HNil}
+import slides.Slides.DocInterpreter.createDoc
 
 object Slides extends App {
 
@@ -40,9 +42,33 @@ object Slides extends App {
 
   object DocInterpreter2 {
 
-    case class Description[A](desc: String, childDescriptions: List[Description[_]])
+    import cats.syntax.show._
+    import cats.instances.string._
+    import cats.instances.int._
 
-    def createDoc[A](op: ValueOp[A]): String = ???
+    def createDoc[A](op: ValueOp[A]): Show[A] = {
+      op match {
+        case TupleData(b,c) =>
+          val showOfB = createDoc(b)
+          val showOfC = createDoc(c)
+          (a: A) =>
+            s"${showOfB.show(a._1)} combined with ${showOfC.show(a._2)})"
+        case OptionalData(optional) =>
+          val showOfB = createDoc(optional)
+          (a: A) => {
+            a match {
+              case Some(value) => "Some( " + showOfB.show(value) + " )"
+              case None => s"None"
+            }
+          }
+        case StringData(key) =>
+          val f = (a: A) => s"a String with key ${key} and value ${Show[String].show(a)}"
+          Show.show(f)
+        case IntData(key)    =>
+          val f = (a: A) => s"an Int with key ${key} and value ${Show[Int].show(a)}"
+          Show.show(f)
+      }
+    }
   }
 
   DocInterpreter.createDoc(example)

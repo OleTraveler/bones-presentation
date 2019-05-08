@@ -252,7 +252,7 @@ val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 #### Create Function and Pass Data
 ```scala
 scala> val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$6017/1497125569@632163c6
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$5359/598412923@4b3e6999
 
 scala> val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {"name":"Dry Falls","latitude":35,"longitude":-83,"height":80}
@@ -490,20 +490,20 @@ waterfallHList: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: sha
 
 Can arbitrarily split an HList
 ```scala
-scala> val waterfallHlist = "Eugene" :: 12 :: Some(12) :: 5 :: HNil
-waterfallHlist: String :: Int :: Some[Int] :: Int :: shapeless.HNil = Eugene :: 12 :: Some(12) :: 5 :: HNil
+scala> val waterfallHlist = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
+waterfallHlist: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Dry Falls :: Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
 scala> waterfallHlist.head
-res0: String = Eugene
+res0: String = Dry Falls
 
 scala> waterfallHlist.tail
-res1: Int :: Some[Int] :: Int :: shapeless.HNil = 12 :: Some(12) :: 5 :: HNil
+res1: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
-scala> val split = Split[String::Int::Option[Int]::Int::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Int :: Option[Int] :: Int :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Int :: shapeless.HNil; type Suffix = Option[Int] :: Int :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@406840e
+scala> val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
+split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6fc79803
 
 scala> split(waterfallHlist)
-res2: split.Out = (Eugene :: 12 :: HNil,Some(12) :: 5 :: HNil)
+res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil)
 ```
 
 ---
@@ -672,7 +672,7 @@ object ArgonautMarshall {
 
 ```scala
 scala>   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
-waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@34ebbdd9,shapeless.ops.hlist$IsHCons$$anon$156@403ce676),shapeless.ops.hlist$IsHCons$$anon$156@155e61d5),slides.HListSlides$$$Lambda$6108/226012376@2178c07b,slides.HListSlides$$$Lambda$6109/2104309086@4814b4f8))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSlid...
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@1282f20d,shapeless.ops.hlist$IsHCons$$anon$156@329a9200),shapeless.ops.hlist$IsHCons$$anon$156@2746bae6),slides.HListSlides$$$Lambda$5450/1559095274@7ecd3ce9,slides.HListSlides$$$Lambda$5451/722189730@7b5abba7))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSlid...
 ```
 
 
@@ -723,7 +723,7 @@ case class MaxLength(max: Int) extends ValidationOp[String] {
 
 ---
 
-# Interpreter
+#### Validation Interpreter
 
 ```scala
 def isValid[A](op: ValidationOp[A]): A => Either[String, A] = {
@@ -732,8 +732,62 @@ def isValid[A](op: ValidationOp[A]): A => Either[String, A] = {
 def doc[A](op: ValidationOp[A]): String = {
   op.description
 }
+```
 
+---
+#### Accumulate errors in Primitive Types
+
+
+```scala
 case class StringData(validationOps: ValidationOp[String]) extends KvpValue[String]
+
+def unmarshall[A](kvpValue: KvpValue[A]): (Key, Json) => Either[NonEmptyList[String],A] = {
+kvpValue match {
+  case StringData(validations) =>
+    (key, json) =>
+      for {
+        jsonString <- json.field(key).toRight(NonEmptyList.one(s"Field with key $key not found."))
+        str <- jsonString.string.toRight(NonEmptyList.one(s"Field with key $key is not a String"))
+        validStr <- applicativeCombine(validations.map(validationOp => isValid(validationOp).apply(str)))
+      } yield validStr
+}
+}
+
+```
+
+---
+
+#### Accumulate results, Short Circuit Product Type
+
+```scala
+  case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
+  (
+    fieldDefinition: KeyValueDefinition[A],
+    tail: KvpHList[H, N],
+    isHCons: IsHCons.Aux[OUT, A, H],
+    validationOps: List[ValidationOp[OUT]]
+  ) extends KvpHList[OUT, Succ[N]]
+
+
+  def accumulate[A,B,C](e1: Either[NonEmptyList[String],A], e2: Either[NonEmptyList[String],B])(f: (A,B) => C)
+    : Either[NonEmptyList[String],C] = ???
+
+  // Doesn't quite compile.
+  def unmarshallHList[H<:HList, N<:Nat](kvpValue: KvpHList[H,N]): Json => Either[NonEmptyList[String],H] = {
+    kvpValue match {
+      case kvp: KvpSingleValueHead[a,h,n,o] =>
+        val kvpF = unmarshall(kvp.fieldDefinition.op)
+        val tailF = unmarshallHList(kvp.tail)
+        (json) =>
+          for {
+            jsonString <- json.obj.toRight(NonEmptyList.one(s"JSON is not an object"))
+            hlist <- accumulate(kvpF(kvp.fieldDefinition.key,json), tailF(json))((t1: a,t2: h) => {
+              (t1 :: t2)
+            })
+            validStr <- applicativeTraverse(kvp.validationOps.map(validationOp => isValid(validationOp).apply(hlist)))
+          } yield validStr
+    }
+  }
 ```
 
 
