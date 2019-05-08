@@ -1,4 +1,4 @@
-baseURL = "oletraveler.github.com"
+baseURL = ""
 languageCode = "en-us"
 title = "Bones Presentation"
 theme = "reveal-hugo"

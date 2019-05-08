@@ -5,6 +5,10 @@ use `hugo server` to regenreate website.
 
 edit `src/main/tut/_index.md` for the presentation which triggers sbt build which outputs files which generates hugo website regen.
 
+to publish:
+hugo (to create public/)
+git subtree push --prefix public origin gh-pages
+
 
 ### Overview
 
