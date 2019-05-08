@@ -3,16 +3,16 @@
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   
   <url>
-    <loc>bones-presentation/categories/</loc>
+    <loc>gadt-presentation/categories/</loc>
     <priority>0</priority>
   </url>
   
   <url>
-    <loc>bones-presentation/</loc>
+    <loc>gadt-presentation/</loc>
   </url>
   
   <url>
-    <loc>bones-presentation/tags/</loc>
+    <loc>gadt-presentation/tags/</loc>
     <priority>0</priority>
   </url>
   

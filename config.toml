@@ -1,6 +1,6 @@
-baseURL = "bones-presentation"
+baseURL = "gadt-presentation"
 languageCode = "en-us"
-title = "Bones Presentation"
+title = "GADT Presentation"
 theme = "reveal-hugo"
 
 [outputFormats.Reveal]
