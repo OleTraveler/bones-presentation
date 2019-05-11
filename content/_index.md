@@ -3,11 +3,11 @@ title = "GADTs in Scala"
 outputs = ["Reveal"]
 +++
 
-## Compile Time Scaffolding in Scala
+## Compile Time Scaffolding in Scala w/ GADTs
 
 * Author: Travis Stevens
 * Twitter: @OleTraveler
-* Slides: https://oletraveler.github.io/bones-presentation/
+* Slides: https://oletraveler.github.io/bones-presentation/  (https://bit.ly/2J9O5i1)
 
 ---
 
@@ -16,48 +16,41 @@ outputs = ["Reveal"]
 * GADT Basics
 * HList
 * Validation using GADT
-* Protouf
 * Describing REST endpoints
 * Demo
+* Protobuf and Other Interpreters
 * Final Thoughts
 
 ---
 
 #### Objectives
 
-  * Learn about the Bones project -- I am looking for feedback.
   * Learn about GADTs and Interpreters
-    * Utilize this pattern in your application.
-  * 
+    * Utilize this pattern in your application
+  * Learn about the Bones project -- I am looking for feedback
+
+---
+
+#### Generalized Algebraic Datatype Definition
+
+  * Few Names
+     * GADT
+     * Guarded Recursive Data Type
+     * First-class Phantom Types
+     
+---     
+     
+#### Generalized Algebraic Datatype Definition     
+  * Data Structure
+     * Algebra
+  * Interpreter
+     * Transforming the Data Structure into another Data Structure 
 
 ---
 
 <details class="notes"><summary>?</summary>
 <p>
-* ADT aka Sum Type aka Subtyping
-* Note sealed!
-</p>
-</details>
-
-ADT - Algebraic Data Type
-
-```scala
-sealed abstract class KvpValue
-
-case object StringData extends KvpValue
-
-case object IntData extends KvpValue
-
-case class OptionalData(optionalValue: KvpValue) extends KvpValue
-
-case class TupleData(leftValue: KvpValue, rightValue: KvpValue) extends KvpValue
-```
-
----
-
-<details class="notes"><summary>?</summary>
-<p>
-* Add a phantom type.
+* phantom type.
 * For Optional data we wrap the type from the Value in Option
 * For tuple, combine 2 types into the duple.
 * Limit our domain to just Ints and String (and combinations of them)
@@ -83,7 +76,7 @@ case class TupleData[B,C]( b: KvpValue[B], c: KvpValue[C]) extends KvpValue[(B,C
 
 <details class="notes"><summary>?</summary>
 <p>
-* Note that the outer GADT keeps track of the entire type.
+* Note type type of the end result..
 </p>
 </details>
 
@@ -135,11 +128,15 @@ case class TupleData[B,C](leftValue: KvpValue[B], rightValue: KvpValue[C]) exten
 #### Building our Schema
 
 ```scala
-scala> val example = TupleData( StringData("name"),
-     |                 TupleData(
-     |                   OptionalData( TupleData( IntData("latitude"), IntData("longitude") )),
-     |                   OptionalData(IntData("height"))
-     |               ))
+scala> val example = 
+     |   TupleData( StringData("name"),
+     |     TupleData(
+     |       OptionalData( 
+     |         TupleData( 
+     |           IntData("latitude"), IntData("longitude"))),
+     |       OptionalData(IntData("height"))
+     |     )
+     |   )
 example: TupleData[String,(Option[(Int, Int)], Option[Int])] = TupleData(StringData(name),TupleData(OptionalData(TupleData(IntData(latitude),IntData(longitude))),OptionalData(IntData(height))))
 ``` 
 
@@ -252,7 +249,7 @@ val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 #### Create Function and Pass Data
 ```scala
 scala> val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$5359/598412923@4b3e6999
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$12717/1772851426@51c780b3
 
 scala> val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {"name":"Dry Falls","latitude":35,"longitude":-83,"height":80}
@@ -448,9 +445,9 @@ the match would happen at runtime.
 * During our refactor to HList, we will address the key issue.
 </details>
 
-### new Features/improvements
+### Improvements to our algebra
 
-* Key on the pimitive doesn't allow for hierarchical data
+* Key on the primitive doesn't allow for hierarchical data
 * Tuples are clunky
 * Hierarchical case classes
 ```scala
@@ -469,7 +466,7 @@ case class Waterfall(name: String, location: Option[Location], height: Option[In
 
 ### Shapeless HList - Quick Overview
 
-The heterogenius list
+The heterogeneous list
 
 ```scala
 import shapeless.ops.hlist.{IsHCons, Length, Prepend, Split}
@@ -477,7 +474,7 @@ import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 ```
 
 
-will allow us to flatten the tuple.
+removes nesting
 ```scala
 scala> val waterfallTuple = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 waterfallTuple: (String, (Some[(Int, Int)], Some[Int])) = (Dry Falls,(Some((35,-83)),Some(80)))
@@ -500,7 +497,7 @@ scala> waterfallHlist.tail
 res1: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
 scala> val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6fc79803
+split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6e93523f
 
 scala> split(waterfallHlist)
 res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil)
@@ -559,10 +556,10 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
   * KvpHList
      * Head of list will have a key/value class: `case class KeyValueDefinition[A](key: String, op: KvpValue[A])`
      * Mirrors HList functionality for prepend
-  * Add a KvpConvertData to the KvpValue algebra
-     * Used to signify conversion to/from HList
-     * Bubble up the case class as the type.
-  * Two interpreters which recursively call each other for hierarchical data
+* Add a KvpConvertData to the KvpValue algebra
+  * Used to signify conversion to/from HList
+  * Bubble up the case class as the type.
+* Two interpreters which recursively call each other for hierarchical data
 
 
 ---
@@ -571,17 +568,17 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 #### Refactored KvpValue
 
 ```scala
-  sealed abstract class KvpValue[A]
+sealed abstract class KvpValue[A]
 
-  case object StringData extends KvpValue[String]
+case object StringData extends KvpValue[String]
 
-  case object IntData extends KvpValue[Int]
+case object IntData extends KvpValue[Int]
 
-  case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
+case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
 
-  case class KvpHListData[H <: HList, N<:Nat](kvpHList: KvpHList[H, N]) extends KvpValue[H]
+case class KvpHListData[H <: HList, N<:Nat](kvpHList: KvpHList[H, N]) extends KvpValue[H]
 
-  case class KvpConvertData[H<:HList, N<:Nat, A](kvpHList: KvpHList[H,N], fha: H => A, fah: A => H) extends KvpValue[A]
+case class KvpConvertData[H<:HList, N<:Nat, A](kvpHList: KvpHList[H,N], fha: H => A, fah: A => H) extends KvpValue[A]
 ```
 
 ```scala
@@ -593,39 +590,36 @@ case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 #### New KvpHList
 
 ```scala
-  sealed abstract class KvpHList[H <: HList, N <: Nat] {
-    def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
-  }
+sealed abstract class KvpHList[H <: HList, N <: Nat] {
+  def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
+}
 
-  object KvpNil extends KvpHList[HNil, Nat._0] {
-    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
-  }
+object KvpNil extends KvpHList[HNil, Nat._0] {
+def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
+  KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
+}
 
-  case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
-  (
-    fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N],
-    isHCons: IsHCons.Aux[OUT, A, H]
-  ) extends KvpHList[OUT, Succ[N]] {
-    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
-    : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-      KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
-  }
+case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
+(
+  fieldDefinition: KeyValueDefinition[A],
+  tail: KvpHList[H, N],
+  isHCons: IsHCons.Aux[OUT, A, H]
+) extends KvpHList[OUT, Succ[N]] {
+def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
+  : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
+     KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
+}
 
-  case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
-    head: KvpHList[HH, HN],
-    tail: KvpHList[HT, NT],
-    prepend: Prepend.Aux[HH, HT, HO],
-    split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
-  ) extends KvpHList[HO, NO] {
-    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
-      KvpSingleValueHead[A, HO, NO, A :: HO] =
-      KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
-  }
-
-
-
+case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
+  head: KvpHList[HH, HN],
+  tail: KvpHList[HT, NT],
+  prepend: Prepend.Aux[HH, HT, HO],
+  split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
+) extends KvpHList[HO, NO] {
+def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
+  KvpSingleValueHead[A, HO, NO, A :: HO] =
+  KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
+}
 ```
 
 
@@ -646,25 +640,24 @@ object ArgonautMarshall {
 #### Waterfall Example
 
 ```scala
-  case class Location(lat: Int, long: Int)
-  case class Waterfall(name: String, location: Option[Location], height: Option[Int])
+case class Location(lat: Int, long: Int)
+case class Waterfall(name: String, location: Option[Location], height: Option[Int])
 
-  val locationHlistSchema =
-      KeyValueDefinition("latitude", IntData) ::
-      KeyValueDefinition("longitude", IntData) ::
-      KvpNil
+val locationHlistSchema =
+  KeyValueDefinition("latitude", IntData) ::
+  KeyValueDefinition("longitude", IntData) ::
+  KvpNil
 
-  val genericLocation = Generic[Location]
-  val locationSchema = KvpConvertData(locationHlistSchema, genericLocation.from, genericLocation.to)
+val genericLocation = Generic[Location]
+val locationSchema = KvpConvertData(locationHlistSchema, genericLocation.from, genericLocation.to)
 
-  val waterfallHlistSchema =
-    KeyValueDefinition("name", StringData) ::
-    KeyValueDefinition("location", OptionalData(locationSchema)) ::
-    KeyValueDefinition("height", OptionalData(IntData)) ::
-    KvpNil
+val waterfallHlistSchema =
+  KeyValueDefinition("name", StringData) ::
+  KeyValueDefinition("location", OptionalData(locationSchema)) ::
+  KeyValueDefinition("height", OptionalData(IntData)) ::
+  KvpNil
 
-  val genericWaterfall = Generic[Waterfall]
-
+val genericWaterfall = Generic[Waterfall]
 ```
 
 
@@ -672,34 +665,36 @@ object ArgonautMarshall {
 
 ```scala
 scala>   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
-waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@1282f20d,shapeless.ops.hlist$IsHCons$$anon$156@329a9200),shapeless.ops.hlist$IsHCons$$anon$156@2746bae6),slides.HListSlides$$$Lambda$5450/1559095274@7ecd3ce9,slides.HListSlides$$$Lambda$5451/722189730@7b5abba7))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSlid...
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@6b02143f,shapeless.ops.hlist$IsHCons$$anon$156@49c3c2ef),shapeless.ops.hlist$IsHCons$$anon$156@4579ce08),slides.HListSlides$$$Lambda$12808/1280023826@9f90f6a,slides.HListSlides$$$Lambda$12809/1953960451@72215186))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSl...
 ```
 
 
 ---
-
-
-
 #### Final Thoughts on KvpHList
   * There is a DSL to clean up usage
+  
+---
+
+
+## Validation
 
 ---
 
-# Validation
+![waterfall](waterfall-validation.png "Logo Title Text 1")
+
+  * Short Circuit
+     * Converting Data Types
+     * Combining Data Types (hierarchical data)
+  * Accumulate
+     * At each KVP Value
+     * Each parallel input   
 
 [GV](https://dreampuf.github.io/GraphvizOnline/#%0Adigraph%20G%20%7B%0A%0A%20%20subgraph%20cluster_0%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20String%22-%3E%20%22Max%2030%22%3B%0A%20%20%20%20%22Is%20String%22%20-%3E%20%22Words%20Only%22%3B%0A%20%20%20%20label%20%3D%20%22Name%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_1%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%20Is%20Number%22%20-%3E%20%22Lat%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Latitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_2%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lon%20Is%20Number%22%20-%3E%20%22Lon%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Longitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_3%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Greater%20than%200%22%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Less%20than%203%2C212%20ft%22%3B%0A%20%20%20%20label%20%3D%20%22Card%20Number%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_4%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%20%20%22Lon%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_5%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Max%2030%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Words%20Only%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Is%20in%20WNC%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Greater%20than%200%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Less%20than%203%2C212%20ft%22%20-%3E%20%22Waterfall%22%0A%20%20%7D%0A%20%20%0A%20%20%0A%20%20%0A%20%20%0A%20%20JSON%20-%3E%20%22Is%20String%22%3B%0A%20%20JSON%20-%3E%20%22Lat%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Lon%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Height%20Is%20Number%22%3B%0A%0A%20%20JSON%20%5Bshape%3DMdiamond%5D%3B%0A%7D)
 
-![waterfall](/waterfall-validation.png "Logo Title Text 1")
 
 ---
 
 # Validation Rules
-  * Short Circuit
-     * Changing datatypes
-     * Combining datatypes (hierarchical data)
-  * Accumulate
-     * At each KVP Value
-     * Each input until combining   
 
 ---
 
@@ -750,7 +745,7 @@ kvpValue match {
         str <- jsonString.string.toRight(NonEmptyList.one(s"Field with key $key is not a String"))
         validStr <- applicativeCombine(validations.map(validationOp => isValid(validationOp).apply(str)))
       } yield validStr
-}
+  }
 }
 
 ```
@@ -789,6 +784,145 @@ kvpValue match {
     }
   }
 ```
+
+
+
+---
+
+### Final Thoughts on Validation
+
+
+
+---
+
+#### Describing REST endpoints
+
+   * Input
+   * Output
+   * Error
+   
+---
+
+CRUD Algebra
+```scala
+case class Create[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O]) 
+case class Read[E,O](err: KvpValue[E], out: KvpValue[O])
+case class Update[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O])
+case class Delete[E,O](err: KvpValue[E], out: KvpValue[O])
+case class Search[E,O](err: KvpValue[E], out: KvpValue[O])
+```
+
+Business Logic
+```scala
+def createF[I,E,O]: I => Either[E,O] = ???
+def readF[ID,E,O]: ID => Either[E,O] = ???
+def updateF[ID,I,E,O]: (ID,I) => Either[E,O] = ???
+def delete[ID,E,O]: ID => Either[E,O] = ???
+def findAll[O]: () => Stream[O] = ???
+def search[SP,E,O]: SP => Either[E,Stream[O]] = ???
+```
+
+---
+
+# Interpreter
+
+  * Take care of the Plumbing
+     * What to use as an ID
+     * Roles
+     * Extract data for a search
+     * Encoding Routes
+     
+---
+
+
+
+
+
+```scala
+
+  type Key = String
+  case class Create[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O])
+  def marshall[A](op: KvpValue[A]): A => Array[Byte] = ???
+  def unmarshall[A](op: KvpValue[A]): Array[Byte] => Either[String,A] = ???
+
+  def post[CI, CE, CO](c: Create[CI,CE,CO],
+                       path: String): (CI => IO[Either[CE, CO]]) => HttpRoutes[IO] = { createF =>
+
+    val inF = unmarshall(c.in)
+    val outF = marshall(c.out)
+    val errF = marshall(c.err)
+
+
+    HttpRoutes.of[IO] {
+      case req@Method.POST -> Root / path => {
+        val result: EitherT[IO, IO[Response[IO]], IO[Response[IO]]] = for {
+          body <- EitherT[IO, IO[Response[IO]], Array[Byte]] {
+            req.as[Array[Byte]].map(Right(_))
+          }
+          in <- EitherT.fromEither[IO] {
+            inF(body).left.map(x => BadRequest())       // <---- input conversion to CI
+          }
+          out <- EitherT[IO, IO[Response[IO]], CO] {
+            createF(in)                                           // <---- business logic
+              .map(_.left.map(ce => {
+              val out = errF(ce)                    // <----- error case output conversion from CE
+              InternalServerError(out,
+                Header("Content-Type", "text/json"))
+            }))
+          }
+        } yield {
+          Ok(outF(out), Header("Content-Type", "text/json")) // <----- output conversion from CO
+        }
+        result.value.flatMap(_.merge)
+      }
+    }
+  }
+
+```
+
+
+---
+
+#### Collection of interpreters
+
+  * Circe, Argonaut, LiftJson, Bson, Protobuff
+     * marshall and unmarshall
+  * Documentation
+     * Swagger Doc & Protofiles
+  * DB
+     * Basic ORM, DB Schema Gen
+  * ReactJS
+     * Create ES2018 React Components
+  * Http
+     * Http4s HttpRoutes
+     * Unfiltered ResponseFunction
+  * BYOI
+     
+----
+
+# DEMO
+
+
+----
+
+
+#### Protobuf
+
+
+  * Byte Array & Mutable Pointer
+  * Protobuf File
+
+
+----
+
+
+#### Final Thoughts
+
+  * Extend functionality using coproduct
+  * Relationship to Free Applicative
+  * Encapsulation
+
+    
 
 
 

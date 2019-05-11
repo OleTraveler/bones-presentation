@@ -19,12 +19,12 @@
   
 <section>
 
-<h2 id="compile-time-scaffolding-in-scala">Compile Time Scaffolding in Scala</h2>
+<h2 id="compile-time-scaffolding-in-scala-w-gadts">Compile Time Scaffolding in Scala w/ GADTs</h2>
 
 <ul>
 <li>Author: Travis Stevens</li>
 <li>Twitter: @OleTraveler</li>
-<li>Slides: <a href="https://oletraveler.github.io/bones-presentation/">https://oletraveler.github.io/bones-presentation/</a></li>
+<li>Slides: <a href="https://oletraveler.github.io/bones-presentation/">https://oletraveler.github.io/bones-presentation/</a>  (<a href="https://bit.ly/2J9O5i1">https://bit.ly/2J9O5i1</a>)</li>
 </ul>
 
 </section><section>
@@ -35,9 +35,9 @@
 <li>GADT Basics</li>
 <li>HList</li>
 <li>Validation using GADT</li>
-<li>Protouf</li>
 <li>Describing REST endpoints</li>
 <li>Demo</li>
+<li>Protobuf and Other Interpreters</li>
 <li>Final Thoughts</li>
 </ul>
 
@@ -46,42 +46,51 @@
 <h4 id="objectives">Objectives</h4>
 
 <ul>
-<li>Learn about the Bones project &ndash; I am looking for feedback.</li>
 <li>Learn about GADTs and Interpreters
 
 <ul>
-<li>Utilize this pattern in your application.</li>
+<li>Utilize this pattern in your application</li>
 </ul></li>
-<li></li>
+<li>Learn about the Bones project &ndash; I am looking for feedback</li>
+</ul>
+
+</section><section>
+
+<h4 id="generalized-algebraic-datatype-definition">Generalized Algebraic Datatype Definition</h4>
+
+<ul>
+<li>Few Names
+
+<ul>
+<li>GADT</li>
+<li>Guarded Recursive Data Type</li>
+<li>First-class Phantom Types
+<br /></li>
+</ul></li>
+</ul>
+
+</section><section>
+
+<h4 id="generalized-algebraic-datatype-definition-1">Generalized Algebraic Datatype Definition</h4>
+
+<ul>
+<li>Data Structure
+
+<ul>
+<li>Algebra</li>
+</ul></li>
+<li>Interpreter
+
+<ul>
+<li>Transforming the Data Structure into another Data Structure</li>
+</ul></li>
 </ul>
 
 </section><section>
 
 <p><details class="notes"><summary>?</summary>
 <p>
-* ADT aka Sum Type aka Subtyping
-* Note sealed!
-</p>
-</details></p>
-
-<p>ADT - Algebraic Data Type</p>
-
-<pre><code class="language-scala">sealed abstract class KvpValue
-
-case object StringData extends KvpValue
-
-case object IntData extends KvpValue
-
-case class OptionalData(optionalValue: KvpValue) extends KvpValue
-
-case class TupleData(leftValue: KvpValue, rightValue: KvpValue) extends KvpValue
-</code></pre>
-
-</section><section>
-
-<p><details class="notes"><summary>?</summary>
-<p>
-* Add a phantom type.
+* phantom type.
 * For Optional data we wrap the type from the Value in Option
 * For tuple, combine 2 types into the duple.
 * Limit our domain to just Ints and String (and combinations of them)
@@ -105,7 +114,7 @@ case class TupleData[B,C]( b: KvpValue[B], c: KvpValue[C]) extends KvpValue[(B,C
 
 <p><details class="notes"><summary>?</summary>
 <p>
-* Note that the outer GADT keeps track of the entire type.
+* Note type type of the end result..
 </p>
 </details></p>
 
@@ -155,11 +164,15 @@ case class TupleData[B,C](leftValue: KvpValue[B], rightValue: KvpValue[C]) exten
 
 <h4 id="building-our-schema">Building our Schema</h4>
 
-<pre><code class="language-scala">scala&gt; val example = TupleData( StringData(&quot;name&quot;),
-     |                 TupleData(
-     |                   OptionalData( TupleData( IntData(&quot;latitude&quot;), IntData(&quot;longitude&quot;) )),
-     |                   OptionalData(IntData(&quot;height&quot;))
-     |               ))
+<pre><code class="language-scala">scala&gt; val example = 
+     |   TupleData( StringData(&quot;name&quot;),
+     |     TupleData(
+     |       OptionalData( 
+     |         TupleData( 
+     |           IntData(&quot;latitude&quot;), IntData(&quot;longitude&quot;))),
+     |       OptionalData(IntData(&quot;height&quot;))
+     |     )
+     |   )
 example: TupleData[String,(Option[(Int, Int)], Option[Int])] = TupleData(StringData(name),TupleData(OptionalData(TupleData(IntData(latitude),IntData(longitude))),OptionalData(IntData(height))))
 </code></pre>
 
@@ -271,7 +284,7 @@ val dryFalls = ( &quot;Dry Falls&quot;, ( Some( (35, -83) ), Some(80) ))
 <h4 id="create-function-and-pass-data">Create Function and Pass Data</h4>
 
 <pre><code class="language-scala">scala&gt; val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) =&gt; argonaut.Json = ArgonautMarshall$$$Lambda$5359/598412923@4b3e6999
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) =&gt; argonaut.Json = ArgonautMarshall$$$Lambda$5343/1463624111@1dd289a2
 
 scala&gt; val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {&quot;name&quot;:&quot;Dry Falls&quot;,&quot;latitude&quot;:35,&quot;longitude&quot;:-83,&quot;height&quot;:80}
@@ -516,7 +529,7 @@ scala&gt; waterfallHlist.tail
 res1: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
 scala&gt; val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6fc79803
+split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@5cdaab74
 
 scala&gt; split(waterfallHlist)
 res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil)
@@ -686,7 +699,7 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 </code></pre>
 
 <pre><code class="language-scala">scala&gt;   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
-waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@1282f20d,shapeless.ops.hlist$IsHCons$$anon$156@329a9200),shapeless.ops.hlist$IsHCons$$anon$156@2746bae6),slides.HListSlides$$$Lambda$5450/1559095274@7ecd3ce9,slides.HListSlides$$$Lambda$5451/722189730@7b5abba7))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSlid...
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@151092fa,shapeless.ops.hlist$IsHCons$$anon$156@2a5e5bf5),shapeless.ops.hlist$IsHCons$$anon$156@36281b2b),slides.HListSlides$$$Lambda$5434/1823533588@3973fb13,slides.HListSlides$$$Lambda$5435/1509795762@28653985))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSli...
 </code></pre>
 
 </section><section>
@@ -770,7 +783,7 @@ kvpValue match {
         str &lt;- jsonString.string.toRight(NonEmptyList.one(s&quot;Field with key $key is not a String&quot;))
         validStr &lt;- applicativeCombine(validations.map(validationOp =&gt; isValid(validationOp).apply(str)))
       } yield validStr
-}
+  }
 }
 
 </code></pre>
@@ -808,6 +821,98 @@ kvpValue match {
     }
   }
 </code></pre>
+
+</section><section>
+
+<h3 id="final-thoughts-on-validation">Final Thoughts on Validation</h3>
+
+</section><section>
+
+<h4 id="describing-rest-endpoints">Describing REST endpoints</h4>
+
+<ul>
+<li>Input</li>
+<li>Output</li>
+<li>Error
+<br /></li>
+</ul>
+
+</section><section>
+
+<p>CRUD Algebra</p>
+
+<pre><code class="language-scala">case class Create[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O]) 
+case class Read[E,O](err: KvpValue[E], out: KvpValue[O])
+case class Update[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O])
+case class Delete[E,O](err: KvpValue[E], out: KvpValue[O])
+case class Search[E,O](err: KvpValue[E], out: KvpValue[O])
+</code></pre>
+
+<p>Business Logic</p>
+
+<pre><code class="language-scala">def createF[I,E,O]: I =&gt; Either[E,O] = ???
+def readF[ID,E,O]: ID =&gt; Either[E,O] = ???
+def updateF[ID,I,E,O]: (ID,I) =&gt; Either[E,O] = ???
+def delete[ID,E,O]: ID =&gt; Either[E,O] = ???
+def findAll[O]: () =&gt; Stream[O] = ???
+def search[SP,E,O]: SP =&gt; Either[E,Stream[O]] = ???
+</code></pre>
+
+</section><section>
+
+<h1 id="interpreter">Interpreter</h1>
+
+<ul>
+<li>Take care of the Plumbing
+
+<ul>
+<li>What to use as an ID</li>
+<li>Roles</li>
+<li>Extract data for a search</li>
+<li>Encoding Routes
+<br /></li>
+</ul></li>
+</ul>
+
+</section><section>
+
+<pre><code class="language-scala">  def post[CI, CO, CE](
+                        path: String,
+                        inInterpreter: Array[Byte] =&gt; Either[NonEmptyList[String], CI],
+                        outInterpreter: CO =&gt; Array[Byte],
+                        errorInterpreter: CE =&gt; Array[Byte]
+                      ): (CI =&gt; IO[Either[CE, CO]]) =&gt; HttpRoutes[IO] = { createF =&gt;
+
+    HttpRoutes.of[IO] {
+      case req@Method.POST -&gt; Root / path =&gt; {
+        val result: EitherT[IO, IO[Response[IO]], IO[Response[IO]]] = for {
+          body &lt;- EitherT[IO, IO[Response[IO]], Array[Byte]] {
+            req.as[Array[Byte]].map(Right(_))
+          }
+          in &lt;- EitherT.fromEither[IO] {
+            inInterpreter(body).left.map(x =&gt; BadRequest())       // &lt;---- input conversion to CI
+          }
+          out &lt;- EitherT[IO, IO[Response[IO]], CO] {
+            createF(in)                                           // &lt;---- business logic
+              .map(_.left.map(ce =&gt; {
+                val out = errorInterpreter(ce)                    // &lt;----- error case output conversion from CE
+                InternalServerError(out,
+                  Header(&quot;Content-Type&quot;, &quot;text/json&quot;))
+              }))
+          }
+        } yield {
+          Ok(outInterpreter(out), Header(&quot;Content-Type&quot;, &quot;text/json&quot;)) // &lt;----- output conversion from CO
+        }
+        result.value.flatMap(_.merge)
+      }
+    }
+  }
+
+</code></pre>
+
+</section><section>
+
+<h1 id="demo">DEMO</h1>
 </section>
 
   

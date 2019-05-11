@@ -40,21 +40,24 @@ object Slides extends App {
     }
   }
 
-  object DocInterpreter2 {
+  DocInterpreter.createDoc(example)
+
+
+  object ShowInterpreter {
 
     import cats.syntax.show._
     import cats.instances.string._
     import cats.instances.int._
 
-    def createDoc[A](op: ValueOp[A]): Show[A] = {
+    def createShow[A](op: ValueOp[A]): Show[A] = {
       op match {
         case TupleData(b,c) =>
-          val showOfB = createDoc(b)
-          val showOfC = createDoc(c)
+          val showOfB = createShow(b)
+          val showOfC = createShow(c)
           (a: A) =>
             s"${showOfB.show(a._1)} combined with ${showOfC.show(a._2)})"
         case OptionalData(optional) =>
-          val showOfB = createDoc(optional)
+          val showOfB = createShow(optional)
           (a: A) => {
             a match {
               case Some(value) => "Some( " + showOfB.show(value) + " )"
@@ -71,7 +74,8 @@ object Slides extends App {
     }
   }
 
-  DocInterpreter.createDoc(example)
+  val wintergreenFalls = ( "Wintergreen Falls", ( Some( (35, -82) ), Some(20) ))
+  ShowInterpreter.createShow(example).show(wintergreenFalls)
 
   import argonaut._
   object ArgonautMarshall {
