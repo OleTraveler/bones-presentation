@@ -149,9 +149,9 @@ case class StringData(key: String)  extends KvpValue[String]
 
 case class IntData(key: String)  extends KvpValue[Int]
 
-case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
+case class OptionalData[B](optional: KvpValue[B]) extends KvpValue[Option[B]]
 
-case class TupleData[B,C](leftValue: KvpValue[B], rightValue: KvpValue[C]) extends KvpValue[(B,C)]
+case class TupleData[B,C](left: KvpValue[B], right: KvpValue[C]) extends KvpValue[(B,C)]
 </code></pre>
 
 </section><section>
@@ -229,16 +229,16 @@ object ArgonautMarshall {
 
   def marshall[A](op: KvpValue[A]): A =&gt; Json = {
     op match {
-      case TupleData(l,r) =&gt; {
-        val fLeft = marshall(l)
-        val fRight = marshall(r)
+      case t: TupleData[l,r] =&gt; {
+        val fLeft: l =&gt; Json = marshall(t.left)
+        val fRight: r =&gt; Json = marshall(t.right)
         (tuple: A) =&gt; {
           combine( fLeft(tuple._1), fRight(tuple._2))
         }
       }
 
-      case OptionalData(aKvpValue) =&gt; {
-        val fOptional = marshall(aKvpValue)
+      case o: OptionalData[b] =&gt; {
+        val fOptional: b =&gt; Json = marshall(o.optional)
         (opt: A) =&gt; {
           opt match {
             case None =&gt; Json.jEmptyObject
@@ -284,7 +284,7 @@ val dryFalls = ( &quot;Dry Falls&quot;, ( Some( (35, -83) ), Some(80) ))
 <h4 id="create-function-and-pass-data">Create Function and Pass Data</h4>
 
 <pre><code class="language-scala">scala&gt; val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) =&gt; argonaut.Json = ArgonautMarshall$$$Lambda$5343/1463624111@1dd289a2
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) =&gt; argonaut.Json = ArgonautMarshall$$$Lambda$8720/1700003818@6c7c1bf5
 
 scala&gt; val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {&quot;name&quot;:&quot;Dry Falls&quot;,&quot;latitude&quot;:35,&quot;longitude&quot;:-83,&quot;height&quot;:80}
@@ -361,16 +361,16 @@ res1: argonaut.Json = {&quot;name&quot;:&quot;Dry Falls&quot;,&quot;lattitude&qu
 object ArgonautUnmarshall {
       def unmarshall[A](op: KvpValue[A]) : Json =&gt; Either[String, A] = {
         op match {
-          case TupleData(leftOp, rightOp) =&gt;
-            val leftF = unmarshall(leftOp)             // recurse left type
-            val rightF = unmarshall(rightOp)           // recurse right type
+          case t: TupleData[l,r] =&gt;
+            val leftF: Json =&gt; Either[String,l] = unmarshall(t.left)   // recurse left type
+            val rightF: Json =&gt; Either[String,r] = unmarshall(t.right) // recurse right type
             json =&gt; {
-              val left = leftF(json)  
-              val right = rightF(json)
+              val left: Either[String,l] = leftF(json)  
+              val right: Either[String,r] = rightF(json)
               combineTuple(left,right)
             }
           case op: OptionalData[b] =&gt;
-            val valueB = unmarshall(op.optionalKvpValue) // recurse member type
+            val valueB: Json =&gt; Either[String,b] = unmarshall(op.optional) // recurse member type
             json =&gt; {
               valueB(json) match {
                 case Left(_) =&gt; Right(None)
@@ -477,10 +477,10 @@ the match would happen at runtime.
 * During our refactor to HList, we will address the key issue.
 </details></p>
 
-<h3 id="new-features-improvements">new Features/improvements</h3>
+<h3 id="improvements-to-our-algebra">Improvements to our algebra</h3>
 
 <ul>
-<li>Key on the pimitive doesn&rsquo;t allow for hierarchical data</li>
+<li>Key on the primitive doesn&rsquo;t allow for hierarchical data</li>
 <li>Tuples are clunky</li>
 
 <li><p>Hierarchical case classes</p>
@@ -499,14 +499,14 @@ case class Waterfall(name: String, location: Option[Location], height: Option[In
 
 <h3 id="shapeless-hlist-quick-overview">Shapeless HList - Quick Overview</h3>
 
-<p>The heterogenius list</p>
+<p>The heterogeneous list</p>
 
 <pre><code class="language-scala">import shapeless.ops.hlist.{IsHCons, Length, Prepend, Split}
 import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 </code></pre></li>
 </ul>
 
-<p>will allow us to flatten the tuple.</p>
+<p>No Nested Tuples</p>
 
 <pre><code class="language-scala">scala&gt; val waterfallTuple = ( &quot;Dry Falls&quot;, ( Some( (35, -83) ), Some(80) ))
 waterfallTuple: (String, (Some[(Int, Int)], Some[Int])) = (Dry Falls,(Some((35,-83)),Some(80)))
@@ -517,7 +517,7 @@ waterfallHList: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: sha
 
 </section><section>
 
-<p>Can arbitrarily split an HList</p>
+<p>Arbitrarily split an HList</p>
 
 <pre><code class="language-scala">scala&gt; val waterfallHlist = &quot;Dry Falls&quot; :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
 waterfallHlist: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Dry Falls :: Some(35 :: -83 :: HNil) :: Some(80) :: HNil
@@ -529,7 +529,7 @@ scala&gt; waterfallHlist.tail
 res1: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
 scala&gt; val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@5cdaab74
+split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6155df62
 
 scala&gt; split(waterfallHlist)
 res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil)
@@ -537,7 +537,7 @@ res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil
 
 </section><section>
 
-<p>Can prepend HLists of arbitrary size</p>
+<p>Prepend HLists of arbitrary sizes</p>
 
 <pre><code class="language-scala">scala&gt; val prefix = &quot;Dry Falls&quot; :: Some( 35 :: -83 :: HNil) :: HNil
 prefix: String :: Some[Int :: Int :: shapeless.HNil] :: shapeless.HNil = Dry Falls :: Some(35 :: -83 :: HNil) :: HNil
@@ -551,7 +551,7 @@ res3: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNi
 
 </section><section>
 
-<p>Magic conversion to/from case classes</p>
+<p>Conversion HList to/from Case Classes</p>
 
 <pre><code class="language-scala">  case class Location(latitude: Int, longitude: Int)
   case class Waterfall(name: String, location: Option[Location], height: Option[Int])
@@ -583,21 +583,21 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 </details></p>
 
 <ul>
-<li>Split GADT into two algebras
+<li>Two Algebras
 
 <ul>
-<li>KvpValue</li>
 <li>KvpHList
 
 <ul>
 <li>Head of list will have a key/value class: <code>case class KeyValueDefinition[A](key: String, op: KvpValue[A])</code></li>
 <li>Mirrors HList functionality for prepend</li>
 </ul></li>
-<li>Add a KvpConvertData to the KvpValue algebra
+<li>KvpValue
 
 <ul>
+<li>Add a KvpConvertData to the KvpValue algebra</li>
 <li>Used to signify conversion to/from HList</li>
-<li>Bubble up the case class as the type.</li>
+<li>Interpreter result is case class, not HList</li>
 </ul></li>
 <li>Two interpreters which recursively call each other for hierarchical data</li>
 </ul></li>
@@ -607,17 +607,17 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 
 <h4 id="refactored-kvpvalue">Refactored KvpValue</h4>
 
-<pre><code class="language-scala">  sealed abstract class KvpValue[A]
+<pre><code class="language-scala">sealed abstract class KvpValue[A]
 
-  case object StringData extends KvpValue[String]
+case object StringData extends KvpValue[String]
 
-  case object IntData extends KvpValue[Int]
+case object IntData extends KvpValue[Int]
 
-  case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
+case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
 
-  case class KvpHListData[H &lt;: HList, N&lt;:Nat](kvpHList: KvpHList[H, N]) extends KvpValue[H]
+case class KvpHListData[H &lt;: HList, N&lt;:Nat](kvpHList: KvpHList[H, N]) extends KvpValue[H]
 
-  case class KvpConvertData[H&lt;:HList, N&lt;:Nat, A](kvpHList: KvpHList[H,N], fha: H =&gt; A, fah: A =&gt; H) extends KvpValue[A]
+case class KvpConvertData[H&lt;:HList, N&lt;:Nat, A](kvpHList: KvpHList[H,N], fha: H =&gt; A, fah: A =&gt; H) extends KvpValue[A]
 </code></pre>
 
 <pre><code class="language-scala">case class KeyValueDefinition[A](key: String, op: KvpValue[A])
@@ -627,44 +627,45 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 
 <h4 id="new-kvphlist">New KvpHList</h4>
 
-<pre><code class="language-scala">  sealed abstract class KvpHList[H &lt;: HList, N &lt;: Nat] {
-    def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
-  }
+<pre><code class="language-scala">sealed abstract class KvpHList[H &lt;: HList, N &lt;: Nat]
 
-  object KvpNil extends KvpHList[HNil, Nat._0] {
-    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-      KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
-  }
+object KvpNil extends KvpHList[HNil, Nat._0]
 
-  case class KvpSingleValueHead[A, H &lt;: HList, N &lt;: Nat, OUT &lt;: A :: H]
-  (
-    fieldDefinition: KeyValueDefinition[A],
-    tail: KvpHList[H, N],
-    isHCons: IsHCons.Aux[OUT, A, H]
-  ) extends KvpHList[OUT, Succ[N]] {
-    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
-    : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-      KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
-  }
+case class KvpSingleValueHead[A, H &lt;: HList, N &lt;: Nat, OUT &lt;: A :: H]
+(
+  fieldDefinition: KeyValueDefinition[A],
+  tail: KvpHList[H, N],
+  isHCons: IsHCons.Aux[OUT, A, H]
+) extends KvpHList[OUT, Succ[N]]
 
-  case class KvpHListHead[HH &lt;: HList, HN &lt;:Nat, HT&lt;:HList, NT &lt;:Nat, HO&lt;:HList, NO&lt;:Nat](
-    head: KvpHList[HH, HN],
-    tail: KvpHList[HT, NT],
-    prepend: Prepend.Aux[HH, HT, HO],
-    split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
-  ) extends KvpHList[HO, NO] {
+case class KvpHListHead[HH &lt;: HList, HN &lt;:Nat, HT&lt;:HList, NT &lt;:Nat, HO&lt;:HList, NO&lt;:Nat](
+  head: KvpHList[HH, HN],
+  tail: KvpHList[HT, NT],
+  prepend: Prepend.Aux[HH, HT, HO],
+  split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
+) extends KvpHList[HO, NO]
+</code></pre>
+
+</section><section>
+
+<h4 id="kvphlist-cons-and-concat">KvpHList Cons and Concat</h4>
+
+<pre><code class="language-scala">
     def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
-      KvpSingleValueHead[A, HO, NO, A :: HO] =
-      KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
-  }
+      KvpHList[A :: HO, Succ[HN]] = ???
 
-
+    def :::[HO &lt;: HList, NO &lt;: Nat, HP &lt;: HList, NP &lt;: Nat](kvp: KvpHList[HP, NP])(
+      implicit prepend: Prepend.Aux[HP, HH, HO],
+      lengthP: Length.Aux[HP, NP],
+      length: Length.Aux[HO, NO],
+      split: Split.Aux[HO, NP, HP, HH]
+    ): KvpHList[HO, NO] = ???
 
 </code></pre>
 
 </section><section>
 
-<h3 id="two-different-gadt">Two different GADT</h3>
+<h4 id="interpreter-mutual-recursion">Interpreter - Mutual Recursion</h4>
 
 <pre><code class="language-scala">object ArgonautMarshall {
    type Key = String
@@ -677,29 +678,28 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 
 <h4 id="waterfall-example">Waterfall Example</h4>
 
-<pre><code class="language-scala">  case class Location(lat: Int, long: Int)
-  case class Waterfall(name: String, location: Option[Location], height: Option[Int])
+<pre><code class="language-scala">case class Location(lat: Int, long: Int)
+case class Waterfall(name: String, location: Option[Location], height: Option[Int])
 
-  val locationHlistSchema =
-      KeyValueDefinition(&quot;latitude&quot;, IntData) ::
-      KeyValueDefinition(&quot;longitude&quot;, IntData) ::
-      KvpNil
+val locationHlistSchema =
+  KeyValueDefinition(&quot;latitude&quot;, IntData) ::
+  KeyValueDefinition(&quot;longitude&quot;, IntData) ::
+  KvpNil
 
-  val genericLocation = Generic[Location]
-  val locationSchema = KvpConvertData(locationHlistSchema, genericLocation.from, genericLocation.to)
+val genericLocation = Generic[Location]
+val locationSchema = KvpConvertData(locationHlistSchema, genericLocation.from, genericLocation.to)
 
-  val waterfallHlistSchema =
-    KeyValueDefinition(&quot;name&quot;, StringData) ::
-    KeyValueDefinition(&quot;location&quot;, OptionalData(locationSchema)) ::
-    KeyValueDefinition(&quot;height&quot;, OptionalData(IntData)) ::
-    KvpNil
+val waterfallHlistSchema =
+  KeyValueDefinition(&quot;name&quot;, StringData) ::
+  KeyValueDefinition(&quot;location&quot;, OptionalData(locationSchema)) ::
+  KeyValueDefinition(&quot;height&quot;, OptionalData(IntData)) ::
+  KvpNil
 
-  val genericWaterfall = Generic[Waterfall]
-
+val genericWaterfall = Generic[Waterfall]
 </code></pre>
 
 <pre><code class="language-scala">scala&gt;   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
-waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@151092fa,shapeless.ops.hlist$IsHCons$$anon$156@2a5e5bf5),shapeless.ops.hlist$IsHCons$$anon$156@36281b2b),slides.HListSlides$$$Lambda$5434/1823533588@3973fb13,slides.HListSlides$$$Lambda$5435/1509795762@28653985))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSli...
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@5bce510b,shapeless.ops.hlist$IsHCons$$anon$156@7d7f6d62),shapeless.ops.hlist$IsHCons$$anon$156@4e6ee6ed),slides.HListSlides$$$Lambda$8811/1952025010@43662231,slides.HListSlides$$$Lambda$8812/1980995891@6a09755f))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSli...
 </code></pre>
 
 </section><section>
@@ -707,35 +707,38 @@ waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWat
 <h4 id="final-thoughts-on-kvphlist">Final Thoughts on KvpHList</h4>
 
 <ul>
-<li>There is a DSL to clean up usage</li>
+<li>There is a DSL to clean up usage
+<br /></li>
 </ul>
 
 </section><section>
 
-<h1 id="validation">Validation</h1>
-
-<p><a href="https://dreampuf.github.io/GraphvizOnline/#%0Adigraph%20G%20%7B%0A%0A%20%20subgraph%20cluster_0%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20String%22-%3E%20%22Max%2030%22%3B%0A%20%20%20%20%22Is%20String%22%20-%3E%20%22Words%20Only%22%3B%0A%20%20%20%20label%20%3D%20%22Name%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_1%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%20Is%20Number%22%20-%3E%20%22Lat%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Latitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_2%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lon%20Is%20Number%22%20-%3E%20%22Lon%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Longitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_3%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Greater%20than%200%22%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Less%20than%203%2C212%20ft%22%3B%0A%20%20%20%20label%20%3D%20%22Card%20Number%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_4%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%20%20%22Lon%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_5%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Max%2030%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Words%20Only%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Is%20in%20WNC%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Greater%20than%200%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Less%20than%203%2C212%20ft%22%20-%3E%20%22Waterfall%22%0A%20%20%7D%0A%20%20%0A%20%20%0A%20%20%0A%20%20%0A%20%20JSON%20-%3E%20%22Is%20String%22%3B%0A%20%20JSON%20-%3E%20%22Lat%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Lon%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Height%20Is%20Number%22%3B%0A%0A%20%20JSON%20%5Bshape%3DMdiamond%5D%3B%0A%7D">GV</a></p>
-
-<p><img src="/waterfall-validation.png" alt="waterfall" title="Logo Title Text 1" /></p>
+<h2 id="validation">Validation</h2>
 
 </section><section>
 
-<h1 id="validation-rules">Validation Rules</h1>
+<p><img src="waterfall-validation.png" alt="waterfall" title="Logo Title Text 1" /></p>
 
 <ul>
 <li>Short Circuit
 
 <ul>
-<li>Changing datatypes</li>
-<li>Combining datatypes (hierarchical data)</li>
+<li>Converting Data Types</li>
+<li>Combining Data Types (hierarchical data)</li>
 </ul></li>
 <li>Accumulate
 
 <ul>
 <li>At each KVP Value</li>
-<li>Each input until combining<br /></li>
+<li>Each parallel input<br /></li>
 </ul></li>
 </ul>
+
+<p><a href="https://dreampuf.github.io/GraphvizOnline/#%0Adigraph%20G%20%7B%0A%0A%20%20subgraph%20cluster_0%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Is%20String%22-%3E%20%22Max%2030%22%3B%0A%20%20%20%20%22Is%20String%22%20-%3E%20%22Words%20Only%22%3B%0A%20%20%20%20label%20%3D%20%22Name%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_1%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%20Is%20Number%22%20-%3E%20%22Lat%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Latitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_2%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lon%20Is%20Number%22%20-%3E%20%22Lon%3A%20-90..90%22%3B%0A%20%20%20%20label%20%3D%20%22Longitude%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_3%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Greater%20than%200%22%3B%0A%20%20%20%20%22Height%20Is%20Number%22%20-%3E%20%22Less%20than%203%2C212%20ft%22%3B%0A%20%20%20%20label%20%3D%20%22Card%20Number%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_4%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Lat%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%20%20%22Lon%3A%20-90..90%22%20-%3E%20%22Is%20in%20WNC%22%3B%0A%20%20%7D%0A%20%20%0A%20%20subgraph%20cluster_5%20%7B%0A%20%20%20%20style%3Dfilled%3B%0A%20%20%20%20color%3Dlightgrey%3B%0A%20%20%20%20node%20%5Bstyle%3Dfilled%2Ccolor%3Dwhite%5D%3B%0A%20%20%20%20%22Max%2030%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Words%20Only%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Is%20in%20WNC%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Greater%20than%200%22%20-%3E%20%22Waterfall%22%3B%0A%20%20%20%20%22Less%20than%203%2C212%20ft%22%20-%3E%20%22Waterfall%22%0A%20%20%7D%0A%20%20%0A%20%20%0A%20%20%0A%20%20%0A%20%20JSON%20-%3E%20%22Is%20String%22%3B%0A%20%20JSON%20-%3E%20%22Lat%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Lon%20Is%20Number%22%3B%0A%20%20JSON%20-%3E%20%22Height%20Is%20Number%22%3B%0A%0A%20%20JSON%20%5Bshape%3DMdiamond%5D%3B%0A%7D">GV</a></p>
+
+</section><section>
+
+<h1 id="validation-rules">Validation Rules</h1>
 
 </section><section>
 
@@ -876,12 +879,19 @@ def search[SP,E,O]: SP =&gt; Either[E,Stream[O]] = ???
 
 </section><section>
 
-<pre><code class="language-scala">  def post[CI, CO, CE](
-                        path: String,
-                        inInterpreter: Array[Byte] =&gt; Either[NonEmptyList[String], CI],
-                        outInterpreter: CO =&gt; Array[Byte],
-                        errorInterpreter: CE =&gt; Array[Byte]
-                      ): (CI =&gt; IO[Either[CE, CO]]) =&gt; HttpRoutes[IO] = { createF =&gt;
+<pre><code class="language-scala">
+  type Key = String
+  case class Create[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O])
+  def marshall[A](op: KvpValue[A]): A =&gt; Array[Byte] = ???
+  def unmarshall[A](op: KvpValue[A]): Array[Byte] =&gt; Either[String,A] = ???
+
+  def post[CI, CE, CO](c: Create[CI,CE,CO],
+                       path: String): (CI =&gt; IO[Either[CE, CO]]) =&gt; HttpRoutes[IO] = { createF =&gt;
+
+    val inF = unmarshall(c.in)
+    val outF = marshall(c.out)
+    val errF = marshall(c.err)
+
 
     HttpRoutes.of[IO] {
       case req@Method.POST -&gt; Root / path =&gt; {
@@ -890,18 +900,18 @@ def search[SP,E,O]: SP =&gt; Either[E,Stream[O]] = ???
             req.as[Array[Byte]].map(Right(_))
           }
           in &lt;- EitherT.fromEither[IO] {
-            inInterpreter(body).left.map(x =&gt; BadRequest())       // &lt;---- input conversion to CI
+            inF(body).left.map(x =&gt; BadRequest())       // &lt;---- input conversion to CI
           }
           out &lt;- EitherT[IO, IO[Response[IO]], CO] {
             createF(in)                                           // &lt;---- business logic
               .map(_.left.map(ce =&gt; {
-                val out = errorInterpreter(ce)                    // &lt;----- error case output conversion from CE
-                InternalServerError(out,
-                  Header(&quot;Content-Type&quot;, &quot;text/json&quot;))
-              }))
+              val out = errF(ce)                    // &lt;----- error case output conversion from CE
+              InternalServerError(out,
+                Header(&quot;Content-Type&quot;, &quot;text/json&quot;))
+            }))
           }
         } yield {
-          Ok(outInterpreter(out), Header(&quot;Content-Type&quot;, &quot;text/json&quot;)) // &lt;----- output conversion from CO
+          Ok(outF(out), Header(&quot;Content-Type&quot;, &quot;text/json&quot;)) // &lt;----- output conversion from CO
         }
         result.value.flatMap(_.merge)
       }
@@ -912,7 +922,63 @@ def search[SP,E,O]: SP =&gt; Either[E,Stream[O]] = ???
 
 </section><section>
 
+<h4 id="collection-of-interpreters">Collection of interpreters</h4>
+
+<ul>
+<li>Circe, Argonaut, LiftJson, Bson, Protobuff
+
+<ul>
+<li>marshall and unmarshall</li>
+</ul></li>
+<li>Documentation
+
+<ul>
+<li>Swagger Doc &amp; Protofiles</li>
+</ul></li>
+<li>DB
+
+<ul>
+<li>Basic ORM, DB Schema Gen</li>
+</ul></li>
+<li>ReactJS
+
+<ul>
+<li>Create ES2018 React Components</li>
+</ul></li>
+<li>Http
+
+<ul>
+<li>Http4s HttpRoutes</li>
+<li>Unfiltered ResponseFunction</li>
+</ul></li>
+<li>BYOI
+<br /></li>
+</ul>
+
+</section><section>
+
 <h1 id="demo">DEMO</h1>
+
+</section><section>
+
+<h4 id="protobuf">Protobuf</h4>
+
+<ul>
+<li>Byte Array &amp; Mutable Pointer</li>
+<li>Protobuf File</li>
+</ul>
+
+</section><section>
+
+<h4 id="final-thoughts">Final Thoughts</h4>
+
+<ul>
+<li>Extend functionality using coproduct</li>
+<li>Relationship to Free Applicative</li>
+<li>Encapsulation
+
+<br /></li>
+</ul>
 </section>
 
   
