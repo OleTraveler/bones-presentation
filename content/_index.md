@@ -114,9 +114,9 @@ case class StringData(key: String)  extends KvpValue[String]
 
 case class IntData(key: String)  extends KvpValue[Int]
 
-case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
+case class OptionalData[B](optional: KvpValue[B]) extends KvpValue[Option[B]]
 
-case class TupleData[B,C](leftValue: KvpValue[B], rightValue: KvpValue[C]) extends KvpValue[(B,C)]
+case class TupleData[B,C](left: KvpValue[B], right: KvpValue[C]) extends KvpValue[(B,C)]
 ```
 ---
 
@@ -194,16 +194,16 @@ object ArgonautMarshall {
 
   def marshall[A](op: KvpValue[A]): A => Json = {
     op match {
-      case TupleData(l,r) => {
-        val fLeft = marshall(l)
-        val fRight = marshall(r)
+      case t: TupleData[l,r] => {
+        val fLeft: l => Json = marshall(t.left)
+        val fRight: r => Json = marshall(t.right)
         (tuple: A) => {
           combine( fLeft(tuple._1), fRight(tuple._2))
         }
       }
 
-      case OptionalData(aKvpValue) => {
-        val fOptional = marshall(aKvpValue)
+      case o: OptionalData[b] => {
+        val fOptional: b => Json = marshall(o.optional)
         (opt: A) => {
           opt match {
             case None => Json.jEmptyObject
@@ -249,7 +249,7 @@ val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 #### Create Function and Pass Data
 ```scala
 scala> val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$12717/1772851426@51c780b3
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$8720/1700003818@6c7c1bf5
 
 scala> val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {"name":"Dry Falls","latitude":35,"longitude":-83,"height":80}
@@ -328,16 +328,16 @@ import argonaut.Json.JsonAssoc
 object ArgonautUnmarshall {
       def unmarshall[A](op: KvpValue[A]) : Json => Either[String, A] = {
         op match {
-          case TupleData(leftOp, rightOp) =>
-            val leftF = unmarshall(leftOp)             // recurse left type
-            val rightF = unmarshall(rightOp)           // recurse right type
+          case t: TupleData[l,r] =>
+            val leftF: Json => Either[String,l] = unmarshall(t.left)   // recurse left type
+            val rightF: Json => Either[String,r] = unmarshall(t.right) // recurse right type
             json => {
-              val left = leftF(json)  
-              val right = rightF(json)
+              val left: Either[String,l] = leftF(json)  
+              val right: Either[String,r] = rightF(json)
               combineTuple(left,right)
             }
           case op: OptionalData[b] =>
-            val valueB = unmarshall(op.optionalKvpValue) // recurse member type
+            val valueB: Json => Either[String,b] = unmarshall(op.optional) // recurse member type
             json => {
               valueB(json) match {
                 case Left(_) => Right(None)
@@ -474,7 +474,7 @@ import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 ```
 
 
-removes nesting
+No Nested Tuples
 ```scala
 scala> val waterfallTuple = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 waterfallTuple: (String, (Some[(Int, Int)], Some[Int])) = (Dry Falls,(Some((35,-83)),Some(80)))
@@ -485,7 +485,7 @@ waterfallHList: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: sha
 
 ---
 
-Can arbitrarily split an HList
+Arbitrarily split an HList
 ```scala
 scala> val waterfallHlist = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
 waterfallHlist: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Dry Falls :: Some(35 :: -83 :: HNil) :: Some(80) :: HNil
@@ -497,7 +497,7 @@ scala> waterfallHlist.tail
 res1: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
 scala> val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6e93523f
+split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6155df62
 
 scala> split(waterfallHlist)
 res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil)
@@ -505,7 +505,7 @@ res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil
 
 ---
 
-Can prepend HLists of arbitrary size
+Prepend HLists of arbitrary sizes
 ```scala
 scala> val prefix = "Dry Falls" :: Some( 35 :: -83 :: HNil) :: HNil
 prefix: String :: Some[Int :: Int :: shapeless.HNil] :: shapeless.HNil = Dry Falls :: Some(35 :: -83 :: HNil) :: HNil
@@ -519,7 +519,7 @@ res3: String :: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNi
 
 ---
 
-Magic conversion to/from case classes
+Conversion HList to/from Case Classes
 ```scala
   case class Location(latitude: Int, longitude: Int)
   case class Waterfall(name: String, location: Option[Location], height: Option[Int])
@@ -551,15 +551,15 @@ waterfallHlist: genWaterfall.Repr = Dry Falls :: Some(Location(35,-83)) :: Some(
 </p>
 </details>
 
-* Split GADT into two algebras
-  * KvpValue
+* Two Algebras
   * KvpHList
      * Head of list will have a key/value class: `case class KeyValueDefinition[A](key: String, op: KvpValue[A])`
      * Mirrors HList functionality for prepend
-* Add a KvpConvertData to the KvpValue algebra
-  * Used to signify conversion to/from HList
-  * Bubble up the case class as the type.
-* Two interpreters which recursively call each other for hierarchical data
+  * KvpValue
+     * Add a KvpConvertData to the KvpValue algebra
+     * Used to signify conversion to/from HList
+     * Interpreter result is case class, not HList
+  * Two interpreters which recursively call each other for hierarchical data
 
 
 ---
@@ -590,42 +590,48 @@ case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 #### New KvpHList
 
 ```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat] {
-  def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
-}
+sealed abstract class KvpHList[H <: HList, N <: Nat]
 
-object KvpNil extends KvpHList[HNil, Nat._0] {
-def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-  KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
-}
+object KvpNil extends KvpHList[HNil, Nat._0]
 
 case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
 (
   fieldDefinition: KeyValueDefinition[A],
   tail: KvpHList[H, N],
   isHCons: IsHCons.Aux[OUT, A, H]
-) extends KvpHList[OUT, Succ[N]] {
-def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
-  : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-     KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
-}
+) extends KvpHList[OUT, Succ[N]]
 
 case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
   head: KvpHList[HH, HN],
   tail: KvpHList[HT, NT],
   prepend: Prepend.Aux[HH, HT, HO],
   split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
-) extends KvpHList[HO, NO] {
-def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
-  KvpSingleValueHead[A, HO, NO, A :: HO] =
-  KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
-}
+) extends KvpHList[HO, NO]
 ```
+
+---
+
+#### KvpHList Cons and Concat
+
+```scala
+
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
+      KvpHList[A :: HO, Succ[HN]] = ???
+
+    def :::[HO <: HList, NO <: Nat, HP <: HList, NP <: Nat](kvp: KvpHList[HP, NP])(
+      implicit prepend: Prepend.Aux[HP, HH, HO],
+      lengthP: Length.Aux[HP, NP],
+      length: Length.Aux[HO, NO],
+      split: Split.Aux[HO, NP, HP, HH]
+    ): KvpHList[HO, NO] = ???
+
+```
+
 
 
 ---
 
-### Two different GADT
+#### Interpreter - Mutual Recursion
 ```scala
 object ArgonautMarshall {
    type Key = String
@@ -665,7 +671,7 @@ val genericWaterfall = Generic[Waterfall]
 
 ```scala
 scala>   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
-waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@6b02143f,shapeless.ops.hlist$IsHCons$$anon$156@49c3c2ef),shapeless.ops.hlist$IsHCons$$anon$156@4579ce08),slides.HListSlides$$$Lambda$12808/1280023826@9f90f6a,slides.HListSlides$$$Lambda$12809/1953960451@72215186))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSl...
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@5bce510b,shapeless.ops.hlist$IsHCons$$anon$156@7d7f6d62),shapeless.ops.hlist$IsHCons$$anon$156@4e6ee6ed),slides.HListSlides$$$Lambda$8811/1952025010@43662231,slides.HListSlides$$$Lambda$8812/1980995891@6a09755f))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSli...
 ```
 
 

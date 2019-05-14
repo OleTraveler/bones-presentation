@@ -113,9 +113,9 @@ case class StringData(key: String)  extends KvpValue[String]
 
 case class IntData(key: String)  extends KvpValue[Int]
 
-case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
+case class OptionalData[B](optional: KvpValue[B]) extends KvpValue[Option[B]]
 
-case class TupleData[B,C](leftValue: KvpValue[B], rightValue: KvpValue[C]) extends KvpValue[(B,C)]
+case class TupleData[B,C](left: KvpValue[B], right: KvpValue[C]) extends KvpValue[(B,C)]
 ```
 ---
 
@@ -191,16 +191,16 @@ object ArgonautMarshall {
 
   def marshall[A](op: KvpValue[A]): A => Json = {
     op match {
-      case TupleData(l,r) => {
-        val fLeft = marshall(l)
-        val fRight = marshall(r)
+      case t: TupleData[l,r] => {
+        val fLeft: l => Json = marshall(t.left)
+        val fRight: r => Json = marshall(t.right)
         (tuple: A) => {
           combine( fLeft(tuple._1), fRight(tuple._2))
         }
       }
 
-      case OptionalData(aKvpValue) => {
-        val fOptional = marshall(aKvpValue)
+      case o: OptionalData[b] => {
+        val fOptional: b => Json = marshall(o.optional)
         (opt: A) => {
           opt match {
             case None => Json.jEmptyObject
@@ -321,16 +321,16 @@ import argonaut.Json.JsonAssoc
 object ArgonautUnmarshall {
       def unmarshall[A](op: KvpValue[A]) : Json => Either[String, A] = {
         op match {
-          case TupleData(leftOp, rightOp) =>
-            val leftF = unmarshall(leftOp)             // recurse left type
-            val rightF = unmarshall(rightOp)           // recurse right type
+          case t: TupleData[l,r] =>
+            val leftF: Json => Either[String,l] = unmarshall(t.left)   // recurse left type
+            val rightF: Json => Either[String,r] = unmarshall(t.right) // recurse right type
             json => {
-              val left = leftF(json)  
-              val right = rightF(json)
+              val left: Either[String,l] = leftF(json)  
+              val right: Either[String,r] = rightF(json)
               combineTuple(left,right)
             }
           case op: OptionalData[b] =>
-            val valueB = unmarshall(op.optionalKvpValue) // recurse member type
+            val valueB: Json => Either[String,b] = unmarshall(op.optional) // recurse member type
             json => {
               valueB(json) match {
                 case Left(_) => Right(None)
@@ -466,7 +466,7 @@ import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 ```
 
 
-removes nesting
+No Nested Tuples
 ```tut
 val waterfallTuple = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 val waterfallHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
@@ -474,7 +474,7 @@ val waterfallHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNi
 
 ---
 
-Can arbitrarily split an HList
+Arbitrarily split an HList
 ```tut
 val waterfallHlist = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
 waterfallHlist.head
@@ -485,7 +485,7 @@ split(waterfallHlist)
 
 ---
 
-Can prepend HLists of arbitrary size
+Prepend HLists of arbitrary sizes
 ```tut
 val prefix = "Dry Falls" :: Some( 35 :: -83 :: HNil) :: HNil
 val suffix = Some(80) :: HNil
@@ -494,7 +494,7 @@ prefix ::: suffix
 
 ---
 
-Magic conversion to/from case classes
+Conversion HList to/from Case Classes
 ```tut:silent
   case class Location(latitude: Int, longitude: Int)
   case class Waterfall(name: String, location: Option[Location], height: Option[Int])
@@ -523,15 +523,15 @@ Magic conversion to/from case classes
 </p>
 </details>
 
-* Split GADT into two algebras
-  * KvpValue
+* Two Algebras
   * KvpHList
      * Head of list will have a key/value class: `case class KeyValueDefinition[A](key: String, op: KvpValue[A])`
      * Mirrors HList functionality for prepend
-* Add a KvpConvertData to the KvpValue algebra
-  * Used to signify conversion to/from HList
-  * Bubble up the case class as the type.
-* Two interpreters which recursively call each other for hierarchical data
+  * KvpValue
+     * Add a KvpConvertData to the KvpValue algebra
+     * Used to signify conversion to/from HList
+     * Interpreter result is case class, not HList
+  * Two interpreters which recursively call each other for hierarchical data
 
 
 ---
@@ -562,42 +562,48 @@ case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 #### New KvpHList
 
 ```scala
-sealed abstract class KvpHList[H <: HList, N <: Nat] {
-  def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
-}
+sealed abstract class KvpHList[H <: HList, N <: Nat]
 
-object KvpNil extends KvpHList[HNil, Nat._0] {
-def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HNil, A, HNil]): KvpSingleValueHead[A, HNil, Nat._0, A :: HNil] =
-  KvpSingleValueHead[A, HNil, Nat._0, A :: HNil](v, KvpNil, isHCons)
-}
+object KvpNil extends KvpHList[HNil, Nat._0]
 
 case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
 (
   fieldDefinition: KeyValueDefinition[A],
   tail: KvpHList[H, N],
   isHCons: IsHCons.Aux[OUT, A, H]
-) extends KvpHList[OUT, Succ[N]] {
-def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::OUT, A, OUT])
-  : KvpSingleValueHead[A, OUT, Succ[N], A :: OUT] =
-     KvpSingleValueHead[A, OUT, Succ[N], A :: OUT](v, this, isHCons)
-}
+) extends KvpHList[OUT, Succ[N]]
 
 case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, NO<:Nat](
   head: KvpHList[HH, HN],
   tail: KvpHList[HT, NT],
   prepend: Prepend.Aux[HH, HT, HO],
   split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
-) extends KvpHList[HO, NO] {
-def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
-  KvpSingleValueHead[A, HO, NO, A :: HO] =
-  KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
-}
+) extends KvpHList[HO, NO]
 ```
+
+---
+
+#### KvpHList Cons and Concat
+
+```scala
+
+    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
+      KvpHList[A :: HO, Succ[HN]] = ???
+
+    def :::[HO <: HList, NO <: Nat, HP <: HList, NP <: Nat](kvp: KvpHList[HP, NP])(
+      implicit prepend: Prepend.Aux[HP, HH, HO],
+      lengthP: Length.Aux[HP, NP],
+      length: Length.Aux[HO, NO],
+      split: Split.Aux[HO, NP, HP, HH]
+    ): KvpHList[HO, NO] = ???
+
+```
+
 
 
 ---
 
-### Two different GADT
+#### Interpreter - Mutual Recursion
 ```scala
 object ArgonautMarshall {
    type Key = String

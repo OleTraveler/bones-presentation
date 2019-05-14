@@ -22,7 +22,7 @@ object HListSlides {
   case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 
   sealed abstract class KvpHList[H <: HList, N <: Nat] {
-    def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
+//    def ::[A](v: KeyValueDefinition[A])(implicit iCons: IsHCons.Aux[A::H, A, H]): KvpSingleValueHead[A, H, N, A :: H]
   }
 
   object KvpNil extends KvpHList[HNil, Nat._0] {
@@ -48,9 +48,17 @@ object HListSlides {
     split: Split.Aux[HO, HN, HH, HT], // analogous: Split.Aux[prepend.OUT,HL,H,T] with lpLength: Length.Aux[H,HL],
   ) extends KvpHList[HO, NO] {
     def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
-      KvpSingleValueHead[A, HO, NO, A :: HO] =
-      KvpSingleValueHead[A, HO, NO, A :: HO](v, this, isHCons)
+      KvpHList[A :: HO, Succ[HN]] = ???
+
+    def :::[HO <: HList, NO <: Nat, HP <: HList, NP <: Nat](kvp: KvpHList[HP, NP])(
+      implicit prepend: Prepend.Aux[HP, HH, HO],
+      lengthP: Length.Aux[HP, NP],
+      length: Length.Aux[HO, NO],
+      split: Split.Aux[HO, NP, HP, HH]
+    ): KvpHList[HO, NO] = ???
   }
+
+
 
 
 
