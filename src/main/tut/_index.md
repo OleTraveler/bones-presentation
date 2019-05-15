@@ -169,7 +169,7 @@ DocInterpreter.createDoc(example)
 
 ---
 
-<details class="notes"><summary>?</summary>
+<details style="visibility: hidden;"><summary>?</summary>
 <p>
 * Tuple data 
   * During interpretation is recursively calling marshall to get the A => Json function of it's members.
@@ -183,6 +183,94 @@ DocInterpreter.createDoc(example)
   * create an object with the value passed as the value and the key as the json name
 </p>
 </details>
+
+
+```tut:silent
+import argonaut._
+object ArgonautMarshall {
+
+  def marshall[A](op: KvpValue[A]): A => Json = {
+    op match {
+      case t: TupleData[l,r] => {
+        val fLeft: l => Json = marshall(t.left)
+        val fRight: r => Json = marshall(t.right)
+        (tuple: A) => {
+          combine( fLeft(tuple._1), fRight(tuple._2))
+        }
+      }
+
+/*    case o: OptionalData[b] => {
+        val fOptional: b => Json = marshall(o.optional)
+        (opt: A) => {
+          opt match {
+            case None => Json.jEmptyObject
+            case Some(a) => fOptional(a)
+          }
+        }
+      }
+
+      case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
+
+      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+*/
+
+    }
+
+  }
+
+  def combine(prefix: Json, postfix: Json): Json = ???
+
+}
+
+```
+
+--- 
+
+#### Marshall Interpreter
+```tut:silent
+import argonaut._
+object ArgonautMarshall {
+
+  def marshall[A](op: KvpValue[A]): A => Json = {
+    op match {
+/*    case t: TupleData[l,r] => {
+        val fLeft: l => Json = marshall(t.left)
+        val fRight: r => Json = marshall(t.right)
+        (tuple: A) => {
+          combine( fLeft(tuple._1), fRight(tuple._2))
+        }
+      }
+*/
+      case o: OptionalData[b] => {
+        val fOptional: b => Json = marshall(o.optional)
+        (opt: A) => {
+          opt match {
+            case None => Json.jEmptyObject
+            case Some(a) => fOptional(a)
+          }
+        }
+      }
+
+/*    case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
+
+      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+*/
+
+    }
+
+  }
+
+  def combine(prefix: Json, postfix: Json): Json = {
+    val values1 = prefix.obj.toList.flatMap(_.toList)
+    val values2 = postfix.obj.toList.flatMap(_.toList)
+    Json.obj(values1 ::: values2: _*)
+  }
+
+}
+```
+
+---
+
 
 #### Marshall Interpreter
 ```tut:silent

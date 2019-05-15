@@ -172,7 +172,7 @@ res0: String = a String with key name combined with an Int with key latitude com
 
 ---
 
-<details class="notes"><summary>?</summary>
+<details style="visibility: hidden;"><summary>?</summary>
 <p>
 * Tuple data 
   * During interpretation is recursively calling marshall to get the A => Json function of it's members.
@@ -186,6 +186,94 @@ res0: String = a String with key name combined with an Int with key latitude com
   * create an object with the value passed as the value and the key as the json name
 </p>
 </details>
+
+
+```scala
+import argonaut._
+object ArgonautMarshall {
+
+  def marshall[A](op: KvpValue[A]): A => Json = {
+    op match {
+      case t: TupleData[l,r] => {
+        val fLeft: l => Json = marshall(t.left)
+        val fRight: r => Json = marshall(t.right)
+        (tuple: A) => {
+          combine( fLeft(tuple._1), fRight(tuple._2))
+        }
+      }
+
+/*    case o: OptionalData[b] => {
+        val fOptional: b => Json = marshall(o.optional)
+        (opt: A) => {
+          opt match {
+            case None => Json.jEmptyObject
+            case Some(a) => fOptional(a)
+          }
+        }
+      }
+
+      case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
+
+      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+*/
+
+    }
+
+  }
+
+  def combine(prefix: Json, postfix: Json): Json = ???
+
+}
+
+```
+
+--- 
+
+#### Marshall Interpreter
+```scala
+import argonaut._
+object ArgonautMarshall {
+
+  def marshall[A](op: KvpValue[A]): A => Json = {
+    op match {
+/*    case t: TupleData[l,r] => {
+        val fLeft: l => Json = marshall(t.left)
+        val fRight: r => Json = marshall(t.right)
+        (tuple: A) => {
+          combine( fLeft(tuple._1), fRight(tuple._2))
+        }
+      }
+*/
+      case o: OptionalData[b] => {
+        val fOptional: b => Json = marshall(o.optional)
+        (opt: A) => {
+          opt match {
+            case None => Json.jEmptyObject
+            case Some(a) => fOptional(a)
+          }
+        }
+      }
+
+/*    case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
+
+      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+*/
+
+    }
+
+  }
+
+  def combine(prefix: Json, postfix: Json): Json = {
+    val values1 = prefix.obj.toList.flatMap(_.toList)
+    val values2 = postfix.obj.toList.flatMap(_.toList)
+    Json.obj(values1 ::: values2: _*)
+  }
+
+}
+```
+
+---
+
 
 #### Marshall Interpreter
 ```scala
@@ -249,7 +337,7 @@ val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 #### Create Function and Pass Data
 ```scala
 scala> val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
-waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$8720/1700003818@6c7c1bf5
+waterfallToJson: ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json = ArgonautMarshall$$$Lambda$12213/536865181@6305daa5
 
 scala> val waterfallJson = waterfallToJson(dryFalls)
 waterfallJson: argonaut.Json = {"name":"Dry Falls","latitude":35,"longitude":-83,"height":80}
@@ -497,7 +585,7 @@ scala> waterfallHlist.tail
 res1: Some[Int :: Int :: shapeless.HNil] :: Some[Int] :: shapeless.HNil = Some(35 :: -83 :: HNil) :: Some(80) :: HNil
 
 scala> val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
-split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@6155df62
+split: shapeless.ops.hlist.Split[String :: Option[Int :: Int :: shapeless.HNil] :: Option[Int] :: shapeless.HNil,shapeless.Succ[shapeless.Succ[shapeless._0]]]{type Prefix = String :: Option[Int :: Int :: shapeless.HNil] :: shapeless.HNil; type Suffix = Option[Int] :: shapeless.HNil} = shapeless.ops.hlist$Split$$anon$78@cebcd17
 
 scala> split(waterfallHlist)
 res2: split.Out = (Dry Falls :: Some(35 :: -83 :: HNil) :: HNil,Some(80) :: HNil)
@@ -671,7 +759,7 @@ val genericWaterfall = Generic[Waterfall]
 
 ```scala
 scala>   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
-waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@5bce510b,shapeless.ops.hlist$IsHCons$$anon$156@7d7f6d62),shapeless.ops.hlist$IsHCons$$anon$156@4e6ee6ed),slides.HListSlides$$$Lambda$8811/1952025010@43662231,slides.HListSlides$$$Lambda$8812/1980995891@6a09755f))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSli...
+waterfallSchema: slides.HListSlides.KvpConvertData[slides.HListSlides.genericWaterfall.Repr,shapeless.Succ[shapeless.Succ[shapeless.Succ[shapeless.Nat._0]]],slides.HListSlides.Waterfall] = KvpConvertData(KvpSingleValueHead(KeyValueDefinition(name,StringData),KvpSingleValueHead(KeyValueDefinition(location,OptionalData(KvpConvertData(KvpSingleValueHead(KeyValueDefinition(latitude,IntData),KvpSingleValueHead(KeyValueDefinition(longitude,IntData),slides.HListSlides$KvpNil$@88941e6,shapeless.ops.hlist$IsHCons$$anon$156@6db1cce0),shapeless.ops.hlist$IsHCons$$anon$156@210b5a7b),slides.HListSlides$$$Lambda$12304/662185673@567f3f18,slides.HListSlides$$$Lambda$12305/21250264@143bd240))),KvpSingleValueHead(KeyValueDefinition(height,OptionalData(IntData)),slides.HListSlide...
 ```
 
 
