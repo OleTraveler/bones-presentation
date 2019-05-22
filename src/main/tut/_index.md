@@ -7,23 +7,23 @@ outputs = ["Reveal"]
 
 * Author: Travis Stevens
 * Twitter: @OleTraveler
-* Slides: https://oletraveler.github.io/bones-presentation/  (https://bit.ly/2J9O5i1)
+* Slides: https://oletraveler.github.io/bones-presentation/  
+   * or https://bit.ly/2J9O5i1
 
 ---
 
-#### Talk  Outline
+## Talk  Outline
 
 * GADT Basics
-* HList
-* Validation using GADT
+* GADTs w/ HList
+* Validation
 * Describing REST endpoints
 * Demo
-* Protobuf and Other Interpreters
-* Final Thoughts
+* \<Ctrl-D\>
 
 ---
 
-#### Objectives
+## Objectives
 
   * Learn about GADTs and Interpreters
     * Utilize this pattern in your application
@@ -31,33 +31,22 @@ outputs = ["Reveal"]
 
 ---
 
-#### Generalized Algebraic Datatype Definition
+## What are GADTs
 
-  * Few Names
-     * GADT
-     * Guarded Recursive Data Type
-     * First-class Phantom Types
-     
----     
-     
-#### Generalized Algebraic Datatype Definition     
-  * Data Structure
-     * Algebra
-  * Interpreter
-     * Transforming the Data Structure into another Data Structure 
+Generalized Algebraic Data Types
+
+* Aliases
+  * Guarded Recursive Data Type
+  * First-class Phantom Type
+  * Fixed-point types (Generalization of Recursion)  
+* Data Structure
+   * Algebra
+* Interpreter
+   * Transforming the Data Structure into another Data Structure 
 
 ---
 
-<details class="notes"><summary>?</summary>
-<p>
-* phantom type.
-* For Optional data we wrap the type from the Value in Option
-* For tuple, combine 2 types into the duple.
-* Limit our domain to just Ints and String (and combinations of them)
-</p>
-</details>
-
-GADT - _Generalized_ Algebraic Data Type
+Algebra
 
 ```tut:silent:reset
 sealed abstract class KvpValue[A]
@@ -71,15 +60,18 @@ case class OptionalData[B](b: KvpValue[B]) extends KvpValue[Option[B]]
 case class TupleData[B,C]( b: KvpValue[B], c: KvpValue[C]) extends KvpValue[(B,C)]
 ``` 
 
-
----
-
 <details class="notes"><summary>?</summary>
 <p>
-* Note type type of the end result..
+* phantom type.
+* For Optional data we wrap the type from the Value in Option
+* For tuple, combine 2 types into the duple.
+* Limit our domain to just Ints and String (and combinations of them)
 </p>
 </details>
 
+
+
+---
 
 Data Structure Examples
 
@@ -96,15 +88,17 @@ TupleData( StringData,
 )
 ```
 
----
-
-#### Parsing JSON
-
 <details class="notes"><summary>?</summary>
 <p>
-* Added key to the primitives for demonstration.
+* Note type type of the end result..
 </p>
 </details>
+
+
+
+---
+
+Parsing Key Value Pairs
 
 ```tut:silent:reset
 sealed abstract class KvpValue[A]
@@ -115,16 +109,11 @@ case class IntData(key: String)  extends KvpValue[Int]
 
 case class OptionalData[B](optional: KvpValue[B]) extends KvpValue[Option[B]]
 
-case class TupleData[B,C](left: KvpValue[B], right: KvpValue[C]) extends KvpValue[(B,C)]
+case class TupleData[B,C](e1: KvpValue[B], e2: KvpValue[C]) extends KvpValue[(B,C)]
 ```
----
 
-<details class="notes"><summary>?</summary>
-<p>
-* 
-</p>
-</details>
-#### Building our Schema
+---
+Building our Schema
 
 ```tut
 val example = 
@@ -140,22 +129,32 @@ val example =
 
 ---
 
-<details class="notes"><summary>?</summary>
-<p>
-* TupleData and OptionalData unwrap the members and recursively call createDoc and then add some metadata
-* String and Int data print the key and type.
-</p>
-</details>
+First Interpreter: Description of the Schema
 
-#### First Interpreter: Print the type
 ```tut:silent
-
 object DocInterpreter {
 
  def createDoc[A](op: KvpValue[A]): String = {
    op match {
-     case TupleData(b,c) => s"${createDoc(b)} combined with ${createDoc(c)})"
-     case OptionalData(b) => s"${createDoc(b)} which is optional"
+     case TupleData(b,c) => s"(${createDoc(b)} combined with ${createDoc(c)})"
+     case OptionalData(b) => s"(${createDoc(b)} which is optional)"
+     case StringData(key) => s"a String with key ${key}"
+     case IntData(key) => s"an Int with key ${key}"
+   }
+ } 
+}
+```
+
+---
+
+First Interpreter: Description of the Schema
+```tut:silent
+object DocInterpreter {
+
+ def createDoc[A](op: KvpValue[A]): String = {
+   op match {
+     case TupleData(b,c) => s"(${createDoc(b)} combined with ${createDoc(c)})"
+     case OptionalData(b) => s"(${createDoc(b)} which is optional)"
      case StringData(key) => s"a String with key ${key}"
      case IntData(key) => s"an Int with key ${key}"
    }
@@ -167,12 +166,43 @@ object DocInterpreter {
 DocInterpreter.createDoc(example)
 ```
 
+<details class="notes"><summary>?</summary>
+<p>
+* TupleData and OptionalData unwrap the members and recursively call createDoc and then add some metadata
+* String and Int data print the key and type.
+</p>
+</details>
+
 ---
+
+Generate Marshall Interpreter
+```tut:silent
+import argonaut._
+object ArgonautMarshall {
+
+  def marshallF[A](op: KvpValue[A]): A => Json = {
+    op match {
+      case t: TupleData[b,c] => {
+        val bF: b => Json = marshallF(t.e1)
+        val cF: c => Json = marshallF(t.e2)
+        (tuple: A) => {
+          combine( bF(tuple._1), cF(tuple._2))
+        }
+      }
+    }
+  }
+
+  def combine(prefix: Json, postfix: Json): Json = ???
+
+}
+
+```
+
 
 <details style="visibility: hidden;"><summary>?</summary>
 <p>
 * Tuple data 
-  * During interpretation is recursively calling marshall to get the A => Json function of it's members.
+  * During interpretation marshallF is recursively calling marshall to get the A => Json function of it's members.
   * For runtime, it will execute those functions and combine the result.
 * Option data
   * Is recursively calling marshall during interpretation.
@@ -184,133 +214,94 @@ DocInterpreter.createDoc(example)
 </p>
 </details>
 
-
-```tut:silent
-import argonaut._
-object ArgonautMarshall {
-
-  def marshall[A](op: KvpValue[A]): A => Json = {
-    op match {
-      case t: TupleData[l,r] => {
-        val fLeft: l => Json = marshall(t.left)
-        val fRight: r => Json = marshall(t.right)
-        (tuple: A) => {
-          combine( fLeft(tuple._1), fRight(tuple._2))
-        }
-      }
-
-/*    case o: OptionalData[b] => {
-        val fOptional: b => Json = marshall(o.optional)
-        (opt: A) => {
-          opt match {
-            case None => Json.jEmptyObject
-            case Some(a) => fOptional(a)
-          }
-        }
-      }
-
-      case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
-
-      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
-*/
-
-    }
-
-  }
-
-  def combine(prefix: Json, postfix: Json): Json = ???
-
-}
-
-```
-
 --- 
 
-#### Marshall Interpreter
+Generate Marshall Interpreter
 ```tut:silent
 import argonaut._
 object ArgonautMarshall {
 
-  def marshall[A](op: KvpValue[A]): A => Json = {
+  def marshallF[A](op: KvpValue[A]): A => Json = {
     op match {
-/*    case t: TupleData[l,r] => {
-        val fLeft: l => Json = marshall(t.left)
-        val fRight: r => Json = marshall(t.right)
-        (tuple: A) => {
-          combine( fLeft(tuple._1), fRight(tuple._2))
-        }
-      }
-*/
       case o: OptionalData[b] => {
-        val fOptional: b => Json = marshall(o.optional)
+        val fOptional: b => Json = marshallF(o.optional)
         (opt: A) => {
           opt match {
             case None => Json.jEmptyObject
             case Some(a) => fOptional(a)
           }
         }
-      }
-
-/*    case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
-
-      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
-*/
+      }    
+      
+//    case t: TupleData[l,r] => ???
 
     }
-
   }
-
-  def combine(prefix: Json, postfix: Json): Json = {
-    val values1 = prefix.obj.toList.flatMap(_.toList)
-    val values2 = postfix.obj.toList.flatMap(_.toList)
-    Json.obj(values1 ::: values2: _*)
-  }
-
 }
 ```
 
 ---
 
+Generate Marshall Interpreter
 
-#### Marshall Interpreter
 ```tut:silent
 import argonaut._
 object ArgonautMarshall {
 
   def marshall[A](op: KvpValue[A]): A => Json = {
     op match {
-      case t: TupleData[l,r] => {
-        val fLeft: l => Json = marshall(t.left)
-        val fRight: r => Json = marshall(t.right)
-        (tuple: A) => {
-          combine( fLeft(tuple._1), fRight(tuple._2))
-        }
-      }
-
-      case o: OptionalData[b] => {
-        val fOptional: b => Json = marshall(o.optional)
-        (opt: A) => {
-          opt match {
-            case None => Json.jEmptyObject
-            case Some(a) => fOptional(a)
-          }
-        }
-      }
-
       case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
 
-      case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+       case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+     
+//     case o: OptionalData[b] => ???
 
+//     case t: TupleData[l,r] => ???
 
     }
+  }   
+}
+   
+```
 
-  }
+```tut:invisible
+import argonaut._
+object ArgonautMarshall {
 
-  def combine(prefix: Json, postfix: Json): Json = {
-    val values1 = prefix.obj.toList.flatMap(_.toList)
-    val values2 = postfix.obj.toList.flatMap(_.toList)
-    Json.obj(values1 ::: values2: _*)
-  }
+ def marshallF[A](op: KvpValue[A]): A => Json = {
+   op match {
+     case t: TupleData[b,c] => {
+       val fLeft: b => Json = marshallF(t.e1)
+       val fRight: c => Json = marshallF(t.e2)
+       (tuple: A) => {
+         combine( fLeft(tuple._1), fRight(tuple._2))
+       }
+     }
+
+     case o: OptionalData[b] => {
+       val fOptional: b => Json = marshallF(o.optional)
+       (opt: A) => {
+         opt match {
+           case None => Json.jEmptyObject
+           case Some(a) => fOptional(a)
+         }
+      }
+   }
+
+     case StringData(key) => str => Json.obj( (key, Json.jString(str)) )
+
+     case IntData(key) => l => Json.obj( (key, Json.jNumber(l)) )
+
+
+   }
+
+ }
+
+ def combine(prefix: Json, postfix: Json): Json = {
+   val values1 = prefix.obj.toList.flatMap(_.toList)
+   val values2 = postfix.obj.toList.flatMap(_.toList)
+   Json.obj(values1 ::: values2: _*)
+ }
 
 }
 
@@ -318,9 +309,8 @@ object ArgonautMarshall {
 
 ---
 
-#### Usage
+Usage
 ```tut:silent
-
 val waterfallSchema = 
   TupleData( StringData("name"),
     TupleData(
@@ -331,69 +321,164 @@ val waterfallSchema =
 val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 ```
 
-#### Create Function and Pass Data
+---
+
+Usage
+```tut:silent
+val waterfallSchema = 
+  TupleData( StringData("name"),
+    TupleData(
+      OptionalData( TupleData( IntData("latitude"), IntData("longitude") )),
+      OptionalData(IntData("height"))
+  ))
+
+val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
+```
+
+Create Function
 ```tut
-val waterfallToJson = ArgonautMarshall.marshall(waterfallSchema)
+val waterfallToJson = ArgonautMarshall.marshallF(waterfallSchema)
+```
+
+---
+
+Usage
+```tut:silent
+val waterfallSchema = 
+  TupleData( StringData("name"),
+    TupleData(
+      OptionalData( TupleData( IntData("latitude"), IntData("longitude") )),
+      OptionalData(IntData("height"))
+  ))
+
+val dryFalls = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
+```
+
+Create Function
+```tut
+val waterfallToJson = ArgonautMarshall.marshallF(waterfallSchema)
+```
+
+Pass Data
+```tut
 val waterfallJson = waterfallToJson(dryFalls)
 ```
 
+```tut:invisible
+import argonaut.Json.JsonAssoc
+```
 ---
 
-<details class="notes"><summary>?</summary>
-<p>
-</p>
-</details>
+Unmarshall Example
 
-#### What is waterfallToJson?
 ```tut:silent
-    val waterfallFLiteral
-      : ((String, (Option[(Int, Int)], Option[Int]))) => argonaut.Json =
-      (i1: (String, (Option[(Int, Int)], Option[Int]))) => {           // <-- function params
-        ArgonautMarshall.combine(
-          { (s: String) =>
-            Json.obj(("name", Json.jString(s)))
-          }.apply(i1._1), { (i2: (Option[(Int, Int)], Option[Int])) => // <-- function params
-            {
-              ArgonautMarshall.combine(
-                {
-                  (i3: Option[(Int, Int)]) =>                          // <-- function params
-                    {
-                      i3 match {
-                        case None => Json.jEmptyObject
-                        case Some(a) => { (i4: (Int, Int)) =>          // <-- function params
-                          {
-                            ArgonautMarshall.combine({ (i: Int) =>     // <-- function params
-                              Json.obj(("lattitude", Json.jNumber(i)))
-                            }.apply(i4._1), { (i: Int) =>              //<-- function params
-                              Json.obj(("longitude", Json.jNumber(i)))
-                            }.apply(i4._2))
-                          }
-                        }.apply(a)
-                      }
-                    }
-                }.apply(i2._1), { (i: Option[Int]) =>                 //<-- function params
-                  i match {
-                    case None => Json.jNull
-                    case Some(a) => { (i: Int) =>
-                      Json.obj(("age", Json.jNumber(i)))
-                    }.apply(a)
-                  }
-                }.apply(i2._2)
-              )
-            }
-          }.apply(i1._2)
-        )
-      }
-```
+object ArgonautUnmarshall {
+  def unmarshallF[A](op: KvpValue[A]) : Json => Either[String, A] = {
+    op match {
+      case t: TupleData[b,c] =>
+        val bF: Json => Either[String,b] = unmarshallF(t.e1)   // recurse b type
+        val cF: Json => Either[String,c] = unmarshallF(t.e2)   // recurse c type
+        json => {
+          val bResult: Either[String,b] = bF(json)  
+          val cResult: Either[String,c] = cF(json)
+          combineTuple(bResult,cResult)
+        }
+    }
+  }
 
-Output
-```tut
-  waterfallFLiteral.apply(dryFalls)
+  def combineTuple[B,C](b: Either[String,B], c: Either[String,C]): Either[String, (B,C)] = ???
+
+}
 ```
 
 ---
 
+Unmarshall Example
 
+```tut:silent
+object ArgonautUnmarshall {
+  def unmarshallF[A](op: KvpValue[A]) : Json => Either[String, A] = {
+    op match {
+      case op: OptionalData[b] =>
+        val valueB: Json => Either[String,b] = unmarshallF(op.optional) // recurse
+        json => {
+          valueB(json) match {
+            case Left(_) => Right(None)
+            case Right(x) => Right(Some(x))
+          }
+        }
+//    case t: TupleData[l,r] => ???        
+    }
+  }
+}
+```
+
+
+```tut:silent
+object ArgonautUnmarshall {
+  def unmarshall[A](op: KvpValue[A]) : Json => Either[String, A] = {
+    op match {
+      case StringData(key) => json =>
+        findField(key, json).flatMap(_._2.string).toRight(s"String Not Found ${key}")
+      case IntData(key) => json =>
+        findField(key, json).flatMap(_._2.number).flatMap(_.toInt)
+          .toRight(s"Int Not Found ${key}")
+//    case t: TupleData[b,c] => ???
+//    case op: OptionalData[b] => ???
+    }
+  }
+
+  def findField(key: String, json: Json) : Option[JsonAssoc] = {
+    json.obj.flatMap(_.toList.find(_._1 == key))
+  }
+
+}
+```
+
+
+```tut:invisible
+object ArgonautUnmarshall {
+  def unmarshallF[A](op: KvpValue[A]) : Json => Either[String, A] = {
+    op match {
+      case t: TupleData[b,c] =>
+        val bF: Json => Either[String,b] = unmarshallF(t.e1)   // recurse b type
+        val cF: Json => Either[String,c] = unmarshallF(t.e2)   // recurse c type
+        json => {
+          val bResult: Either[String,b] = bF(json)  
+          val cResult: Either[String,c] = cF(json)
+          combineTuple(bResult,cResult)
+        }
+      case op: OptionalData[b] =>
+        val valueB: Json => Either[String,b] = unmarshallF(op.optional) // recurse
+        json => {
+          valueB(json) match {
+            case Left(_) => Right(None)
+            case Right(x) => Right(Some(x))
+          }
+        }
+      case StringData(key) => json =>
+        findField(key, json).flatMap(_._2.string).toRight(s"String Not Found ${key}")
+      case IntData(key) => json =>
+        findField(key, json).flatMap(_._2.number).flatMap(_.toInt)
+          .toRight(s"Int Not Found ${key}")
+    }
+  }
+
+  def combineTuple[B,C](b: Either[String,B], c: Either[String,C]): Either[String, (B,C)] = {
+    (b,c) match {
+      case ( Left(bErr), Left(cError) ) => Left(s"${bErr}|${cError}" )
+      case ( Left(bErr), _ ) => Left(bErr)
+      case ( _ , Left(cErr) ) => Left(cErr)
+      case ( Right(b), Right(c) ) => Right( (b,c) )
+    }
+  }
+
+  def findField(key: String, json: Json) : Option[JsonAssoc] = {
+    json.obj.flatMap(_.toList.find(_._1 == key))
+  }
+
+}
+```
 <details class="notes"><summary>?</summary>
  <p>
 * 
@@ -402,69 +487,22 @@ Output
 </p> 
 </details>
 
-#### Unmarshall Example
-
-```tut:silent
-import argonaut.Json.JsonAssoc
-object ArgonautUnmarshall {
-      def unmarshall[A](op: KvpValue[A]) : Json => Either[String, A] = {
-        op match {
-          case t: TupleData[l,r] =>
-            val leftF: Json => Either[String,l] = unmarshall(t.left)   // recurse left type
-            val rightF: Json => Either[String,r] = unmarshall(t.right) // recurse right type
-            json => {
-              val left: Either[String,l] = leftF(json)  
-              val right: Either[String,r] = rightF(json)
-              combineTuple(left,right)
-            }
-          case op: OptionalData[b] =>
-            val valueB: Json => Either[String,b] = unmarshall(op.optional) // recurse member type
-            json => {
-              valueB(json) match {
-                case Left(_) => Right(None)
-                case Right(x) => Right(Some(x))
-              }
-            }
-          case StringData(key) => json =>
-            findField(key, json).flatMap(_._2.string).toRight(s"String Not Found ${key}")
-          case IntData(key) => json =>
-            findField(key, json).flatMap(_._2.number).flatMap(_.toInt)
-              .toRight(s"Int Not Found ${key}")
-        }
-      }
-
-      def combineTuple[B,C](b: Either[String,B], c: Either[String,C]): Either[String, (B,C)] = {
-        (b,c) match {
-          case ( Left(bErr), Left(cError) ) => Left(s"${bErr}|${cError}" )
-          case ( Left(bErr), _ ) => Left(bErr)
-          case ( _ , Left(cErr) ) => Left(cErr)
-          case ( Right(b), Right(c) ) => Right( (b,c) )
-        }
-      }
-
-      def findField(key: String, json: Json) : Option[JsonAssoc] = {
-        json.obj.flatMap(_.toList.find(_._1 == key))
-      }
-
-    }
-```
-
 ---
 
-#### full circle, JSON to Data
+JSON to Data (full circle)
 ```tut
-ArgonautUnmarshall.unmarshall(waterfallSchema)(waterfallJson)
+ArgonautUnmarshall.unmarshallF(waterfallSchema)(waterfallJson)
 ```
 
 ---
 
-#### 2 Steps: Interpret, Run
+2 Steps: Interpret, Run
 ```scala
           case op: OptionalData[b] =>
 
             // This Code is evaluated before returning the function
             // and is therefor only executed once per schema begin interpreted
-            val valueB = unmarshall(op.optionalKvpValue)
+            val valueB = unmarshallF(op.optionalKvpValue)
 
             // This function is executed many times,
             // one for each data transformation
@@ -477,84 +515,53 @@ ArgonautUnmarshall.unmarshall(waterfallSchema)(waterfallJson)
 ```
 ---
 
-#### Do Not Do This
+Result is a non-recursive data structure
+
+![data-structure](data-structure.png)
 
 <details><summary>?</summary>
 <p>
 By moving the input type a up in the code, we skip the interpreter step and 
 the match would happen at runtime.
+Instead of returning separate functions for each case, we are returning one function.
 </p>
 </details>
 
-```tut:silent
-  def marshall[A](op: KvpValue[A]): A => Json = a => {
-    op match {
-      case StringData(key) => Json.obj( (key, Json.jString(a)) )
 
-      case IntData(key) => Json.obj( (key, Json.jNumber(a)) )
-
-      case OptionalData(aKvpValue) => {
-        val fOptional = marshall(aKvpValue)
-        a match {
-          case None => Json.jNull
-          case Some(a) => fOptional(a)
-        }
-      }
-
-      case TupleData(l,r) => {
-        val fLeft = marshall(l)
-        val fRight = marshall(r)
-        ArgonautMarshall.combine( fLeft(a._1), fRight(a._2))
-      }
-    }
-
-  }
-
-
-```
 
 
 ---
 
-#### Final notes on GADTs
+## Recap
+
+* As the data structure grows, the type is maintained
+* Interpreters are recursive, but may result in non-recursive data structure
+* Created Documentation as well as an implementation from a GADT
+ 
 
 ---
 
-<details class="notes"><summary>?</summary>
-* Shapeless will replace tuples and gives us case classes for free
-* During our refactor to HList, we will address the key issue.
-</details>
+## Improvements to our implementation
 
-### Improvements to our algebra
+* Current implementation does not allow for hierarchical data
+* Tuples are clunky (and limited to 22 values)
+* We want Hierarchical case classes
 
-* Key on the primitive doesn't allow for hierarchical data
-* Tuples are clunky
-* Hierarchical case classes
 ```tut:silent
 case class Location(latitude: Int, longitude: Int)
 case class Waterfall(name: String, location: Option[Location], height: Option[Int])
 ```
 
-
 ---
 
-<details class="notes"><summary>?</summary>
-<p>
+## Shapeless HList - Quick Overview
 
-</p>
-</details>
-
-### Shapeless HList - Quick Overview
-
-The heterogeneous list
-
-```tut:silent:reset
+```tut:invisible:reset
 import shapeless.ops.hlist.{IsHCons, Length, Prepend, Split}
 import shapeless.{::, Generic, HList, HNil, Nat, Succ}
 ```
 
-
-No Nested Tuples
+Example Data
 ```tut
 val waterfallTuple = ( "Dry Falls", ( Some( (35, -83) ), Some(80) ))
 val waterfallHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
@@ -563,26 +570,50 @@ val waterfallHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNi
 ---
 
 Arbitrarily split an HList
-```tut
+```tut:silent
 val waterfallHlist = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
-waterfallHlist.head
-waterfallHlist.tail
 val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
+```
+
+---
+
+Arbitrarily split an HList
+```tut:silent
+val waterfallHlist = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
+val split = Split[String::Option[Int::Int::HNil]::Option[Int]::HNil, Nat._2]
+```
+```tut
 split(waterfallHlist)
 ```
 
 ---
 
-Prepend HLists of arbitrary sizes
-```tut
+Concatenate HLists of arbitrary sizes
+```tut:silent
 val prefix = "Dry Falls" :: Some( 35 :: -83 :: HNil) :: HNil
 val suffix = Some(80) :: HNil
+```
+
+```tut
+prefix ::: suffix
+``` 
+
+---
+
+Concatenate HLists of arbitrary sizes
+```tut:silent
+val prefix = "Dry Falls" :: Some( 35 :: -83 :: HNil) :: HNil
+val suffix = Some(80) :: HNil
+```
+
+```tut
 prefix ::: suffix
 ``` 
 
 ---
 
 Conversion HList to/from Case Classes
+
 ```tut:silent
   case class Location(latitude: Int, longitude: Int)
   case class Waterfall(name: String, location: Option[Location], height: Option[Int])
@@ -591,8 +622,7 @@ Conversion HList to/from Case Classes
   val genWaterfall = Generic[Waterfall]
 
   val dryFallsHList = "Dry Falls" :: Some( 35 :: -83 :: HNil ) :: Some(80) :: HNil
-  val dryFallsLocation: String :: Option[Location] :: Option[Int] :: HNil =
-    dryFallsHList.head :: dryFallsHList.tail.head.map(genLocation.from) :: dryFallsHList.tail.tail.head :: dryFallsHList.tail.tail.tail
+  val dryFallsLocation: String :: Option[Location] :: Option[Int] :: HNil = dryFallsHList.head :: dryFallsHList.tail.head.map(genLocation.from) :: dryFallsHList.tail.tail.head :: dryFallsHList.tail.tail.tail
 ```
 
 ```tut
@@ -602,30 +632,26 @@ Conversion HList to/from Case Classes
 
 ---
 
-#### Refactor KvpValue
-
-<details class="notes"><summary>?</summary>
-<p>
-* removed key from StringData and IntData
-* Removed TupleData
-</p>
-</details>
+## Refactor KvpValue
 
 * Two Algebras
   * KvpHList
-     * Head of list will have a key/value class: `case class KeyValueDefinition[A](key: String, op: KvpValue[A])`
-     * Mirrors HList functionality for prepend
+     * Groups 0 or more key value pairs (Json Object)
+     * Mirrors HList functionality for prepend/concat
+     * Guarantee that head of non nil list will have a key/value class
+       * KeyValueDefinition()
+     * Type Parameter will track the Type
   * KvpValue
-     * Add a KvpConvertData to the KvpValue algebra
-     * Used to signify conversion to/from HList
+     * Remove key
+     * Remove TupleData type
+     * Add a type representing the conversion from KvpHList to a case class
      * Interpreter result is case class, not HList
   * Two interpreters which recursively call each other for hierarchical data
 
 
 ---
 
-
-#### Refactored KvpValue
+Refactored KvpValue
 
 ```scala
 sealed abstract class KvpValue[A]
@@ -636,19 +662,19 @@ case object IntData extends KvpValue[Int]
 
 case class OptionalData[B](optionalKvpValue: KvpValue[B]) extends KvpValue[Option[B]]
 
-case class KvpHListData[H <: HList, N<:Nat](kvpHList: KvpHList[H, N]) extends KvpValue[H]
-
 case class KvpConvertData[H<:HList, N<:Nat, A](kvpHList: KvpHList[H,N], fha: H => A, fah: A => H) extends KvpValue[A]
 ```
 
+---
+
+Key/Value class
 ```scala
 case class KeyValueDefinition[A](key: String, op: KvpValue[A])
 ```
 
 ---
 
-#### New KvpHList
-
+KvpHList
 ```scala
 sealed abstract class KvpHList[H <: HList, N <: Nat]
 
@@ -656,7 +682,7 @@ object KvpNil extends KvpHList[HNil, Nat._0]
 
 case class KvpSingleValueHead[A, H <: HList, N <: Nat, OUT <: A :: H]
 (
-  fieldDefinition: KeyValueDefinition[A],
+  keyValueDefinition: KeyValueDefinition[A],
   tail: KvpHList[H, N],
   isHCons: IsHCons.Aux[OUT, A, H]
 ) extends KvpHList[OUT, Succ[N]]
@@ -671,19 +697,18 @@ case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, N
 
 ---
 
-#### KvpHList Cons and Concat
-
+KvpHList Cons and Concat
 ```scala
+    // Enforce head must be a KvpSingleValueHead
+    def ::[B](v: KeyValueDefinition[B])(implicit isHCons: IsHCons.Aux[B::HO, B, HO]):
+      KvpSingleValueHead[A :: HO, Succ[HN]] = ???
 
-    def ::[A](v: KeyValueDefinition[A])(implicit isHCons: IsHCons.Aux[A::HO, A, HO]):
-      KvpHList[A :: HO, Succ[HN]] = ???
-
-    def :::[HO <: HList, NO <: Nat, HP <: HList, NP <: Nat](kvp: KvpHList[HP, NP])(
+    def :::[HO <: HList, NO <: Nat, HP <: HList, NP <: Nat](prefix: KvpHList[HP, NP])(
       implicit prepend: Prepend.Aux[HP, HH, HO],
       lengthP: Length.Aux[HP, NP],
       length: Length.Aux[HO, NO],
       split: Split.Aux[HO, NP, HP, HH]
-    ): KvpHList[HO, NO] = ???
+    ): KvpHListHead[HP, NP, HH, HP, HO, NO] = ???
 
 ```
 
@@ -691,7 +716,7 @@ case class KvpHListHead[HH <: HList, HN <:Nat, HT<:HList, NT <:Nat, HO<:HList, N
 
 ---
 
-#### Interpreter - Mutual Recursion
+Interpreter - Mutual Recursion
 ```scala
 object ArgonautMarshall {
    type Key = String
@@ -703,8 +728,7 @@ object ArgonautMarshall {
 
 ---
 
-#### Waterfall Example
-
+Waterfall Example
 ```scala
 case class Location(lat: Int, long: Int)
 case class Waterfall(name: String, location: Option[Location], height: Option[Int])
@@ -734,15 +758,9 @@ import slides.HListSlides._
   val waterfallSchema = KvpConvertData(waterfallHlistSchema, genericWaterfall.from, genericWaterfall.to)
 ```
 
-
----
-#### Final Thoughts on KvpHList
-  * There is a DSL to clean up usage
-  
 ---
 
-
-## Validation
+#### Validation
 
 ---
 
@@ -760,12 +778,7 @@ import slides.HListSlides._
 
 ---
 
-# Validation Rules
-
----
-
-# Validation Using GADT
-
+Validation Using a GADT state of mind 
 ```tut:silent
 trait ValidationOp[T] {
   def isValid: T => Boolean
@@ -837,7 +850,7 @@ kvpValue match {
   def unmarshallHList[H<:HList, N<:Nat](kvpValue: KvpHList[H,N]): Json => Either[NonEmptyList[String],H] = {
     kvpValue match {
       case kvp: KvpSingleValueHead[a,h,n,o] =>
-        val kvpF = unmarshall(kvp.fieldDefinition.op)
+        val kvpF = unmarshallF(kvp.fieldDefinition.op)
         val tailF = unmarshallHList(kvp.tail)
         (json) =>
           for {
@@ -850,14 +863,6 @@ kvpValue match {
     }
   }
 ```
-
-
-
----
-
-### Final Thoughts on Validation
-
-
 
 ---
 
@@ -878,6 +883,8 @@ case class Delete[E,O](err: KvpValue[E], out: KvpValue[O])
 case class Search[E,O](err: KvpValue[E], out: KvpValue[O])
 ```
 
+---
+
 Business Logic
 ```tut:silent
 def createF[I,E,O]: I => Either[E,O] = ???
@@ -893,10 +900,12 @@ def search[SP,E,O]: SP => Either[E,Stream[O]] = ???
 # Interpreter
 
   * Take care of the Plumbing
+     * Encoding Routes
      * What to use as an ID
      * Roles
      * Extract data for a search
-     * Encoding Routes
+       * parameters
+       * page limits and sizing
      
 ---
 
@@ -915,15 +924,15 @@ import org.http4s._, org.http4s.dsl.io._, org.http4s.implicits._
 
   type Key = String
   case class Create[I,E,O](in: KvpValue[I], err: KvpValue[E], out: KvpValue[O])
-  def marshall[A](op: KvpValue[A]): A => Array[Byte] = ???
-  def unmarshall[A](op: KvpValue[A]): Array[Byte] => Either[String,A] = ???
+  def marshallF[A](op: KvpValue[A]): A => Array[Byte] = ???
+  def unmarshallF[A](op: KvpValue[A]): Array[Byte] => Either[String,A] = ???
 
   def post[CI, CE, CO](c: Create[CI,CE,CO],
                        path: String): (CI => IO[Either[CE, CO]]) => HttpRoutes[IO] = { createF =>
 
-    val inF = unmarshall(c.in)
-    val outF = marshall(c.out)
-    val errF = marshall(c.err)
+    val inF: Array[Byte] => Either[String,CI] = unmarshallF(c.in)
+    val outF: CO => Array[Byte] = marshallF(c.out)
+    val errF: CE => Array[Byte] = marshallF(c.err)
 
 
     HttpRoutes.of[IO] {
@@ -933,18 +942,18 @@ import org.http4s._, org.http4s.dsl.io._, org.http4s.implicits._
             req.as[Array[Byte]].map(Right(_))
           }
           in <- EitherT.fromEither[IO] {
-            inF(body).left.map(x => BadRequest())       // <---- input conversion to CI
+            inF(body).left.map(x => BadRequest())                  // <---- input conversion to CI
           }
           out <- EitherT[IO, IO[Response[IO]], CO] {
-            createF(in)                                           // <---- business logic
+            createF(in)                                            // <---- business logic
               .map(_.left.map(ce => {
-              val out = errF(ce)                    // <----- error case output conversion from CE
+              val out = errF(ce)                                   // <----- error case output conversion from CE
               InternalServerError(out,
                 Header("Content-Type", "text/json"))
             }))
           }
         } yield {
-          Ok(outF(out), Header("Content-Type", "text/json")) // <----- output conversion from CO
+          Ok(outF(out), Header("Content-Type", "text/json"))        // <----- output conversion from CO
         }
         result.value.flatMap(_.merge)
       }
@@ -956,7 +965,7 @@ import org.http4s._, org.http4s.dsl.io._, org.http4s.implicits._
 
 ---
 
-#### Collection of interpreters
+## Collection of interpreters
 
   * Circe, Argonaut, LiftJson, Bson, Protobuff
      * marshall and unmarshall
@@ -969,27 +978,16 @@ import org.http4s._, org.http4s.dsl.io._, org.http4s.implicits._
   * Http
      * Http4s HttpRoutes
      * Unfiltered ResponseFunction
+  * Scalacheck Generators   
   * BYOI
      
 ----
 
 # DEMO
 
-
 ----
 
-
-#### Protobuf
-
-
-  * Byte Array & Mutable Pointer
-  * Protobuf File
-
-
-----
-
-
-#### Final Thoughts
+#### <Ctrl-D>
 
   * Extend functionality using coproduct
   * Relationship to Free Applicative
