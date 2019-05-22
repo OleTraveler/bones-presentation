@@ -2027,7 +2027,8 @@
 							slide.style.top = 0;
 						}
 						else {
-							slide.style.top = Math.max( ( size.height - slide.scrollHeight ) / 2, 0 ) + 'px';
+							slide.style.top = 0;
+							//slide.style.top = Math.max( ( size.height - slide.scrollHeight ) / 2, 0 ) + 'px';
 						}
 					}
 					else {
